@@ -27,6 +27,5 @@ chrono = { version = "0.4", features = ["serde"] }
 trailbase-client = "0.5.0"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
-directories = "5.0"
 uuid = { version = "1", features = ["v4"] }
-
+openssl = { version = "0.10", features = ["vendored"] }
