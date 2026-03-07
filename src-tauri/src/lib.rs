@@ -201,43 +201,50 @@ async fn get_connection_status(state: State<'_, AppState>) -> Result<bool, Strin
 pub fn run() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
 
+    let handle = rt.block_on(async {
+        tauri::Builder::default()
+            .plugin(tauri_plugin_opener::init())
+            .plugin(tauri_plugin_fs::init())
+            .invoke_handler(tauri::generate_handler![
+                get_tasks,
+                get_notes,
+                get_flashcards,
+                get_grades,
+                get_swim_sessions,
+                get_swim_galas,
+                get_qualifying_times,
+                get_swim_goals,
+                create_record_command,
+                update_record_command,
+                delete_record_command,
+                nuke_database,
+                refresh_data_command,
+                get_connection_status
+            ])
+            .build(tauri::generate_context!())
+    }).expect("Failed to build tauri application");
+
     let trailbase_service = rt.block_on(async {
-        TrailbaseService::new().await
+        TrailbaseService::new(handle.handle().clone()).await
     }).expect("Failed to initialize TrailbaseService");
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .manage(AppState {
-            trailbase_service: Mutex::new(trailbase_service),
-        })
-        .setup(|app| {
-            let handle = app.handle().clone();
-            
-            tauri::async_runtime::spawn(async move {
-                let state = handle.state::<AppState>();
-                let trailbase = state.trailbase_service.lock().await;
-                trailbase.start_background_sync(handle.clone());
-            });
-            
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            get_tasks,
-            get_notes,
-            get_flashcards,
-            get_grades,
-            get_swim_sessions,
-            get_swim_galas,
-            get_qualifying_times,
-            get_swim_goals,
-            create_record_command,
-            update_record_command,
-            delete_record_command,
-            nuke_database,
-            refresh_data_command,
-            get_connection_status
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    handle.manage(AppState {
+        trailbase_service: Mutex::new(trailbase_service),
+    });
+
+    handle.run(|app_handle, event| {
+        match event {
+            tauri::RunEvent::Ready => {
+                let handle_clone = app_handle.clone();
+                
+                tauri::async_runtime::spawn(async move {
+                    let state = handle_clone.state::<AppState>();
+                    let trailbase = state.trailbase_service.lock().await;
+                    trailbase.start_background_sync(handle_clone.clone());
+                });
+            }
+            _ => {}
+        }
+    });
 }
 

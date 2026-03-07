@@ -5,7 +5,13 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc; // Keep std::sync::Arc
 use tokio::sync::Mutex; // Use tokio's Mutex
-use directories::ProjectDirs;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum SyncOp {
+    Create { collection: String, data: serde_json::Value },
+    Update { collection: String, id: String, data: serde_json::Value },
+    Delete { collection: String, id: String },
+}
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct AppData {
@@ -16,7 +22,8 @@ pub struct AppData {
     pub galas: Vec<SwimGala>,
     pub qts: Vec<QualifyingTime>,
     pub swim_goals: Vec<SwimGoal>,
-    pub flashcards: Vec<SchoolFlashcard>, // Added flashcards
+    pub flashcards: Vec<SchoolFlashcard>,
+    pub pending_sync: Vec<SyncOp>, // Queue for offline changes
 }
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,18 +36,17 @@ pub struct TrailbaseService {
     pub is_offline: Arc<AtomicBool>,
 }
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::{timeout, Duration};
 
 impl TrailbaseService {
-    pub async fn new() -> Result<Self> {
-        let proj_dirs = ProjectDirs::from("com", "student_os", "student_os_rust")
-            .ok_or_else(|| anyhow!("Could not determine project directories"))?;
-        let storage_path = proj_dirs.data_dir().join("student_os_data.json");
+    pub async fn new(handle: AppHandle) -> Result<Self> {
+        let storage_dir = handle.path().app_data_dir()
+            .map_err(|_| anyhow!("Could not determine app data directory"))?;
         
-        if let Some(parent) = storage_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
+        let storage_path = storage_dir.join("student_os_data.json");
+        
+        let _ = fs::create_dir_all(&storage_dir);
 
         let cache_data = if storage_path.exists() {
             if let Ok(content) = fs::read_to_string(&storage_path) {
@@ -87,7 +93,6 @@ impl TrailbaseService {
                 let is_currently_offline = is_offline_clone.load(Ordering::Relaxed);
                 
                 if is_currently_offline {
-                    // Use timeout to prevent hanging on login if server is unreachable
                     let login_result = timeout(Duration::from_secs(5), client_clone.login(&username, &password)).await;
                     
                     if let Ok(Ok(_)) = login_result {
@@ -98,7 +103,30 @@ impl TrailbaseService {
                         let _ = handle.emit("connection-status", false); 
                         
                         let mut data = cache_clone.lock().await;
-                        // Syncing all data...
+
+                        // 1. Flush pending changes to remote
+                        if !data.pending_sync.is_empty() {
+                            println!("[Sync] Flushing {} pending offline changes...", data.pending_sync.len());
+                            let ops = data.pending_sync.clone();
+                            data.pending_sync.clear(); // Clear immediately to prevent double-syncing if we crash
+
+                            for op in ops {
+                                match op {
+                                    SyncOp::Create { collection, data } => {
+                                        let _ = client_clone.records(&collection).create(&data).await;
+                                    }
+                                    SyncOp::Update { collection, id, data } => {
+                                        let _ = client_clone.records(&collection).update(&id, &data).await;
+                                    }
+                                    SyncOp::Delete { collection, id } => {
+                                        let _ = client_clone.records(&collection).delete(&id).await;
+                                    }
+                                }
+                            }
+                            println!("[Sync] Offline changes pushed to server.");
+                        }
+
+                        // 2. Syncing all data from remote...
                         let _ = Self::fetch_remote::<Task>(&client_clone, "tasks", &user_id_clone).await.map(|items| data.tasks = items);
                         let _ = Self::fetch_remote::<SchoolNote>(&client_clone, "school_notes", &user_id_clone).await.map(|items| data.notes = items);
                         let _ = Self::fetch_remote::<SchoolGrade>(&client_clone, "school_grades", &user_id_clone).await.map(|items| data.grades = items);
@@ -112,7 +140,6 @@ impl TrailbaseService {
                         println!("[Data] Sync complete. Cache updated.");
                     }
                 } else {
-                    // Heartbeat check with timeout
                     let heartbeat = timeout(
                         Duration::from_secs(5), 
                         client_clone.records("tasks").list::<serde_json::Value>(ListArguments::new().with_count(true))
@@ -126,7 +153,6 @@ impl TrailbaseService {
                     }
                 }
 
-                // Poll every 2 seconds for high responsiveness
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
         });
@@ -187,11 +213,12 @@ impl TrailbaseService {
     where
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
-        // Try remote first
-        let record_id = if !self.is_offline.load(Ordering::Relaxed) {
+        let is_offline = self.is_offline.load(Ordering::Relaxed);
+        
+        let record_id = if !is_offline {
             match self.client.records(collection).create(&serde_json::to_value(&record)?).await {
                 Ok(id) => id,
-                Err(_) => uuid::Uuid::new_v4().to_string(), // Fallback to local UUID
+                Err(_) => uuid::Uuid::new_v4().to_string(), 
             }
         } else {
             uuid::Uuid::new_v4().to_string()
@@ -201,6 +228,14 @@ impl TrailbaseService {
         
         // Update cache
         let mut cache = self.cache.lock().await;
+        
+        if is_offline {
+            cache.pending_sync.push(SyncOp::Create { 
+                collection: collection.to_string(), 
+                data: serde_json::to_value(record.clone())? 
+            });
+        }
+
         match collection {
             "tasks" => {
                 if let Ok(v) = serde_json::from_value::<Task>(serde_json::to_value(record.clone())?) {
@@ -254,14 +289,22 @@ impl TrailbaseService {
     where
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
-        // Try remote if it looks like a remote ID (e.g. integer or UUID from DB)
-        // If it fails or we are offline, it's okay, we'll just update local cache.
-        if !self.is_offline.load(Ordering::Relaxed) {
+        let is_offline = self.is_offline.load(Ordering::Relaxed);
+        
+        if !is_offline {
             let _ = self.client.records(collection).update(record.get_id(), &serde_json::to_value(&record)?).await;
         }
 
         let mut cache = self.cache.lock().await;
         let record_id = record.get_id();
+
+        if is_offline {
+            cache.pending_sync.push(SyncOp::Update { 
+                collection: collection.to_string(), 
+                id: record_id.to_string(),
+                data: serde_json::to_value(record.clone())? 
+            });
+        }
         
         match collection {
             "tasks" => {
@@ -332,20 +375,31 @@ impl TrailbaseService {
     where
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
-        self.client.records(collection).delete(record_id)
-            .await.map_err(|e| anyhow!("{:?}", e))?;
+        let is_offline = self.is_offline.load(Ordering::Relaxed);
 
-        let mut cache = self.cache.lock().await; // Corrected: removed .unwrap()
+        if !is_offline {
+            let _ = self.client.records(collection).delete(record_id).await;
+        }
+
+        let mut cache = self.cache.lock().await; 
+
+        if is_offline {
+            cache.pending_sync.push(SyncOp::Delete { 
+                collection: collection.to_string(), 
+                id: record_id.to_string() 
+            });
+        }
+
         // Remove from cache based on collection type
         match collection {
-            "tasks" => cache.tasks.retain(|r: &Task| r.get_id() != record_id), // Added type annotation
-            "school_notes" => cache.notes.retain(|r: &SchoolNote| r.get_id() != record_id), // Added type annotation
-            "school_grades" => cache.grades.retain(|r: &SchoolGrade| r.get_id() != record_id), // Added type annotation
-            "swim_sessions" => cache.swims.retain(|r: &SwimSession| r.get_id() != record_id), // Added type annotation
-            "swim_galas" => cache.galas.retain(|r: &SwimGala| r.get_id() != record_id), // Added type annotation
-            "qualifying_times" => cache.qts.retain(|r: &QualifyingTime| r.get_id() != record_id), // Added type annotation
-            "swim_goals" => cache.swim_goals.retain(|r: &SwimGoal| r.get_id() != record_id), // Added type annotation
-            "flashcards" => cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id), // Added type annotation
+            "tasks" => cache.tasks.retain(|r: &Task| r.get_id() != record_id), 
+            "school_notes" => cache.notes.retain(|r: &SchoolNote| r.get_id() != record_id), 
+            "school_grades" => cache.grades.retain(|r: &SchoolGrade| r.get_id() != record_id), 
+            "swim_sessions" => cache.swims.retain(|r: &SwimSession| r.get_id() != record_id), 
+            "swim_galas" => cache.galas.retain(|r: &SwimGala| r.get_id() != record_id), 
+            "qualifying_times" => cache.qts.retain(|r: &QualifyingTime| r.get_id() != record_id), 
+            "swim_goals" => cache.swim_goals.retain(|r: &SwimGoal| r.get_id() != record_id), 
+            "flashcards" => cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id), 
             _ => {},
         }
         let _ = fs::write(&self.storage_path, serde_json::to_string(&*cache).unwrap());
