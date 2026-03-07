@@ -27,7 +27,10 @@
         <main class="main-content">
             <div id="connection-banner" class="connection-banner hidden">Offline Mode</div>
             <header class="header">
-                <h1 id="view-title">All Data</h1>
+                <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <h1 id="view-title">All Data</h1>
+                    <button id="add-btn" class="icon-btn" title="Create New"><i data-lucide="plus"></i></button>
+                </div>
                 <div class="search-bar">
                     <i data-lucide="search"></i>
                     <input type="text" id="search-input" placeholder="Search anything...">
@@ -39,6 +42,28 @@
                 <div class="loading-msg">Fetching data from Trailbase...</div>
             </section>
         </main>
+    </div>
+
+    <!-- Simple Creation Modal -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2 id="modal-title">New Entry</h2>
+                <button id="close-modal" class="icon-btn-small"><i data-lucide="x"></i></button>
+            </div>
+            <div class="modal-body">
+                <select id="entry-type" class="modal-input">
+                    <option value="school_notes">Note</option>
+                    <option value="tasks">School Task</option>
+                    <option value="habits">Habit</option>
+                </select>
+                <input type="text" id="entry-title" class="modal-input" placeholder="Title">
+                <textarea id="entry-content" class="modal-input" placeholder="Content..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button id="save-entry-btn" class="btn btn-primary">Save Entry</button>
+            </div>
+        </div>
     </div>
 
     <script src="main.js"></script>

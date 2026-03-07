@@ -24,12 +24,17 @@ const viewTitle = document.getElementById('view-title');
 const searchInput = document.getElementById('search-input');
 const syncBtn = document.getElementById('sync-btn');
 const connectionBanner = document.getElementById('connection-banner');
+const addBtn = document.getElementById('add-btn');
+const modalOverlay = document.getElementById('modal-overlay');
+const closeModal = document.getElementById('close-modal');
+const saveEntryBtn = document.getElementById('save-entry-btn');
 
 // Initialize
 async function init() {
     setupNavigation();
     setupSearch();
     setupSync();
+    setupCreation();
     setupConnectionListener();
     await refreshAll();
     
@@ -39,6 +44,81 @@ async function init() {
 
     // Near real-time updates: poll every 30 seconds
     startPolling();
+}
+
+function setupCreation() {
+    addBtn.onclick = () => {
+        modalOverlay.classList.remove('hidden');
+    };
+
+    closeModal.onclick = () => {
+        modalOverlay.classList.add('hidden');
+    };
+
+    window.onclick = (event) => {
+        if (event.target == modalOverlay) {
+            modalOverlay.classList.add('hidden');
+        }
+    };
+
+    saveEntryBtn.onclick = async () => {
+        const type = document.getElementById('entry-type').value;
+        const title = document.getElementById('entry-title').value;
+        const content = document.getElementById('entry-content').value;
+
+        if (!title) {
+            alert("Please enter a title");
+            return;
+        }
+
+        let record = {
+            id: "",
+            userId: "LRA8iDK1iBUKGCdVIOff7CjVhxT2",
+            title: title,
+        };
+
+        let collection = type;
+
+        if (type === 'school_notes') {
+            record.content = content;
+            record.subject = "General";
+            record.createdAt = new Date().toISOString();
+        } else if (type === 'tasks') {
+            record.taskType = "school";
+            record.isCompleted = false;
+            record.createdDate = new Date().toISOString();
+            record.subject = content || "School";
+        } else if (type === 'habits') {
+            collection = "tasks";
+            record.taskType = "task";
+            record.isCompleted = false;
+            record.createdDate = new Date().toISOString();
+            record.streak = 0;
+            record.completedDates = [];
+        }
+
+        try {
+            saveEntryBtn.disabled = true;
+            saveEntryBtn.textContent = "Saving...";
+            
+            await invoke("create_record_command", { 
+                collection: collection, 
+                recordJson: JSON.stringify(record) 
+            });
+            
+            modalOverlay.classList.add('hidden');
+            // Reset form
+            document.getElementById('entry-title').value = "";
+            document.getElementById('entry-content').value = "";
+            
+            await refreshAll();
+        } catch (e) {
+            alert("Failed to save: " + e);
+        } finally {
+            saveEntryBtn.disabled = false;
+            saveEntryBtn.textContent = "Save Entry";
+        }
+    };
 }
 
 function setupConnectionListener() {
@@ -296,8 +376,8 @@ function renderData() {
                 content: f.answer,
                 meta: [
                     { icon: 'graduation-cap', text: f.subject },
-                    // Fix: interval is serialized as srs_interval, handle 0
-                    { icon: 'refresh-ccw', text: `Interval: ${f.srs_interval ?? 0}d` }
+                    // Handle interval serialized as srs_interval or interval
+                    { icon: 'refresh-ccw', text: `Interval: ${f.srs_interval ?? f.interval ?? 0}d` }
                 ],
                 raw: f
             });
