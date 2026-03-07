@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudentOS Explorer</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="app-window">
+        <aside class="sidebar">
+            <div class="logo">SOS</div>
+            <nav class="nav-menu">
+                <div class="nav-item active" data-collection="all">All Data</div>
+                <div class="nav-item" data-collection="tasks">Tasks & Habits</div>
+                <div class="nav-item" data-collection="notes">Notes</div>
+                <div class="nav-item" data-collection="grades">Grades</div>
+                <div class="nav-item" data-collection="swimming">Swimming</div>
+                <div class="nav-item" data-collection="flashcards">Flashcards</div>
+            </nav>
+            <div class="sidebar-footer">
+                <button id="sync-btn" class="icon-btn"><i data-lucide="refresh-cw"></i></button>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <div id="connection-banner" class="connection-banner hidden">Offline Mode</div>
+            <header class="header">
+                <h1 id="view-title">All Data</h1>
+                <div class="search-bar">
+                    <i data-lucide="search"></i>
+                    <input type="text" id="search-input" placeholder="Search anything...">
+                </div>
+            </header>
+
+            <section class="data-list" id="data-container">
+                <!-- Data items will be injected here -->
+                <div class="loading-msg">Fetching data from Trailbase...</div>
+            </section>
+        </main>
+    </div>
+
+    <script src="main.js"></script>
+</body>
+</html>

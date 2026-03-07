@@ -1,0 +1,11 @@
+target/
+**/*.rs.bk
+.DS_Store
+.env
+*.json.bk
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/bin/
+
