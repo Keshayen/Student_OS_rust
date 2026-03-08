@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc; // Keep std::sync::Arc
 use tokio::sync::Mutex; // Use tokio's Mutex
-use directories::ProjectDirs;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum SyncOp {
@@ -344,7 +343,7 @@ impl TrailbaseService {
             "flashcards" => cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id), 
             _ => {},
         }
-        let _ = fs::write(&self.storage_path, serde_json::to_string(&*data).unwrap());
+        let _ = fs::write(&self.storage_path, serde_json::to_string(&*cache).unwrap());
         Ok(())
     }
 

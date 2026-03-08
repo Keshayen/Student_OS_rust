@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize, Deserializer, Serializer};
-use chrono::{DateTime, Utc};
 
 pub trait Identifiable {
     fn get_id(&self) -> &str;
