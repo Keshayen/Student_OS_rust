@@ -38,7 +38,6 @@
             </header>
 
             <section class="data-list" id="data-container">
-                <!-- Data items will be injected here -->
                 <div class="loading-msg">Fetching data from Trailbase...</div>
             </section>
         </main>
@@ -58,7 +57,9 @@
                     <option value="habits">Habit</option>
                 </select>
                 <input type="text" id="entry-title" class="modal-input" placeholder="Title">
-                <textarea id="entry-content" class="modal-input" placeholder="Content..."></textarea>
+                <div id="modal-dynamic-fields" class="modal-body" style="padding: 0; margin: 0">
+                    <!-- Dynamic fields injected here -->
+                </div>
             </div>
             <div class="modal-footer">
                 <button id="save-entry-btn" class="btn btn-primary">Save Entry</button>
@@ -66,6 +67,6 @@
         </div>
     </div>
 
-    <script src="main.js"></script>
+    <script type="module" src="main.js"></script>
 </body>
 </html>

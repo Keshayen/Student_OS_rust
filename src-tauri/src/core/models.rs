@@ -49,6 +49,14 @@ pub struct Task {
     pub streak: Option<i32>,
     #[serde(rename = "completedDates")]
     pub completed_dates: Option<serde_json::Value>,
+    #[serde(rename = "reminderEnabled", with = "bool_as_int")]
+    pub reminder_enabled: bool,
+    #[serde(rename = "reminderType")]
+    pub reminder_type: Option<String>,
+    #[serde(rename = "reminderHour")]
+    pub reminder_hour: Option<i32>,
+    #[serde(rename = "reminderMinute")]
+    pub reminder_minute: Option<i32>,
 }
 
 impl Identifiable for Task {

@@ -102,60 +102,74 @@ impl TrailbaseService {
                         is_offline_clone.store(false, Ordering::Relaxed);
                         let _ = handle.emit("connection-status", false); 
                         
-                        let mut data = cache_clone.lock().await;
-
-                        // 1. Flush pending changes to remote
-                        if !data.pending_sync.is_empty() {
-                            println!("[Sync] Flushing {} pending offline changes...", data.pending_sync.len());
-                            let ops = data.pending_sync.clone();
-                            data.pending_sync.clear(); // Clear immediately to prevent double-syncing if we crash
-
-                            for op in ops {
-                                match op {
-                                    SyncOp::Create { collection, data } => {
-                                        let _ = client_clone.records(&collection).create(&data).await;
-                                    }
-                                    SyncOp::Update { collection, id, data } => {
-                                        let _ = client_clone.records(&collection).update(&id, &data).await;
-                                    }
-                                    SyncOp::Delete { collection, id } => {
-                                        let _ = client_clone.records(&collection).delete(&id).await;
-                                    }
-                                }
-                            }
-                            println!("[Sync] Offline changes pushed to server.");
-                        }
-
-                        // 2. Syncing all data from remote...
-                        let _ = Self::fetch_remote::<Task>(&client_clone, "tasks", &user_id_clone).await.map(|items| data.tasks = items);
-                        let _ = Self::fetch_remote::<SchoolNote>(&client_clone, "school_notes", &user_id_clone).await.map(|items| data.notes = items);
-                        let _ = Self::fetch_remote::<SchoolGrade>(&client_clone, "school_grades", &user_id_clone).await.map(|items| data.grades = items);
-                        let _ = Self::fetch_remote::<SwimSession>(&client_clone, "swim_sessions", &user_id_clone).await.map(|items| data.swims = items);
-                        let _ = Self::fetch_remote::<SwimGala>(&client_clone, "swim_galas", &user_id_clone).await.map(|items| data.galas = items);
-                        let _ = Self::fetch_remote::<QualifyingTime>(&client_clone, "qualifying_times", &user_id_clone).await.map(|items| data.qts = items);
-                        let _ = Self::fetch_remote::<SwimGoal>(&client_clone, "swim_goals", &user_id_clone).await.map(|items| data.swim_goals = items);
-                        let _ = Self::fetch_remote::<SchoolFlashcard>(&client_clone, "flashcards", &user_id_clone).await.map(|items| data.flashcards = items);
-
-                        let _ = fs::write(&storage_path_clone, serde_json::to_string(&*data).unwrap());
-                        println!("[Data] Sync complete. Cache updated.");
+                        // Initial sync upon reconnection
+                        Self::flush_sync_queue(&client_clone, &cache_clone, &storage_path_clone).await;
+                        Self::sync_all_remote(&client_clone, &cache_clone, &storage_path_clone, &user_id_clone).await;
                     }
                 } else {
+                    // Check if we are still online
                     let heartbeat = timeout(
                         Duration::from_secs(5), 
                         client_clone.records("tasks").list::<serde_json::Value>(ListArguments::new().with_count(true))
                     ).await;
 
                     if heartbeat.is_err() || heartbeat.unwrap().is_err() {
-                        println!("[Network] Connection lost (Server unreachable). Switching to OFFLINE mode.");
+                        println!("[Network] Connection lost. Switching to OFFLINE mode.");
                         is_offline_clone.store(true, Ordering::Relaxed);
                         offline_start_time = std::time::Instant::now(); 
                         let _ = handle.emit("connection-status", true);
+                    } else {
+                        // Still online, try flushing anything that might have been queued during momentary blips
+                        Self::flush_sync_queue(&client_clone, &cache_clone, &storage_path_clone).await;
                     }
                 }
 
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
         });
+    }
+
+    async fn flush_sync_queue(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf) {
+        let mut data = cache.lock().await;
+        if data.pending_sync.is_empty() { return; }
+
+        println!("[Sync] Flushing {} pending changes...", data.pending_sync.len());
+        let ops = data.pending_sync.clone();
+        data.pending_sync.clear();
+
+        for op in ops {
+            let res = match op {
+                SyncOp::Create { ref collection, ref data } => {
+                    let mut clean_data = data.clone();
+                    if let Some(obj) = clean_data.as_object_mut() {
+                        obj.remove("id");
+                    }
+                    client.records(collection).create(&clean_data).await.map(|_| ())
+                },
+                SyncOp::Update { ref collection, ref id, ref data } => client.records(collection).update(id, data).await.map(|_| ()),
+                SyncOp::Delete { ref collection, ref id } => client.records(collection).delete(id).await.map(|_| ()),
+            };
+            
+            if let Err(e) = res {
+                println!("[Sync] Flush failed for op, re-queuing: {:?}", e);
+                data.pending_sync.push(op);
+            }
+        }
+        let _ = fs::write(storage_path, serde_json::to_string(&*data).unwrap());
+    }
+
+    async fn sync_all_remote(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf, user_id: &str) {
+        let mut data = cache.lock().await;
+        let _ = Self::fetch_remote::<Task>(client, "tasks", user_id).await.map(|items| data.tasks = items);
+        let _ = Self::fetch_remote::<SchoolNote>(client, "school_notes", user_id).await.map(|items| data.notes = items);
+        let _ = Self::fetch_remote::<SchoolGrade>(client, "school_grades", user_id).await.map(|items| data.grades = items);
+        let _ = Self::fetch_remote::<SwimSession>(client, "swim_sessions", user_id).await.map(|items| data.swims = items);
+        let _ = Self::fetch_remote::<SwimGala>(client, "swim_galas", user_id).await.map(|items| data.galas = items);
+        let _ = Self::fetch_remote::<QualifyingTime>(client, "qualifying_times", user_id).await.map(|items| data.qts = items);
+        let _ = Self::fetch_remote::<SwimGoal>(client, "swim_goals", user_id).await.map(|items| data.swim_goals = items);
+        let _ = Self::fetch_remote::<SchoolFlashcard>(client, "flashcards", user_id).await.map(|items| data.flashcards = items);
+        let _ = fs::write(storage_path, serde_json::to_string(&*data).unwrap());
+        println!("[Data] Remote sync complete.");
     }
 
     pub async fn get_tasks(&self) -> Result<Vec<Task>> {
@@ -214,11 +228,20 @@ impl TrailbaseService {
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
         let is_offline = self.is_offline.load(Ordering::Relaxed);
+        let mut sync_needed = is_offline;
         
         let record_id = if !is_offline {
-            match self.client.records(collection).create(&serde_json::to_value(&record)?).await {
+            let mut val = serde_json::to_value(&record)?;
+            if let Some(obj) = val.as_object_mut() {
+                obj.remove("id");
+            }
+            match self.client.records(collection).create(&val).await {
                 Ok(id) => id,
-                Err(_) => uuid::Uuid::new_v4().to_string(), 
+                Err(e) => {
+                    println!("[Sync] Remote create failed, queuing for later: {:?}", e);
+                    sync_needed = true;
+                    uuid::Uuid::new_v4().to_string()
+                }
             }
         } else {
             uuid::Uuid::new_v4().to_string()
@@ -229,7 +252,7 @@ impl TrailbaseService {
         // Update cache
         let mut cache = self.cache.lock().await;
         
-        if is_offline {
+        if sync_needed {
             cache.pending_sync.push(SyncOp::Create { 
                 collection: collection.to_string(), 
                 data: serde_json::to_value(record.clone())? 
@@ -237,50 +260,20 @@ impl TrailbaseService {
         }
 
         match collection {
-            "tasks" => {
-                if let Ok(v) = serde_json::from_value::<Task>(serde_json::to_value(record.clone())?) {
-                    cache.tasks.push(v);
-                }
-            }
-            "school_notes" => {
-                if let Ok(v) = serde_json::from_value::<SchoolNote>(serde_json::to_value(record.clone())?) {
-                    cache.notes.push(v);
-                }
-            }
-            "school_grades" => {
-                if let Ok(v) = serde_json::from_value::<SchoolGrade>(serde_json::to_value(record.clone())?) {
-                    cache.grades.push(v);
-                }
-            }
-            "swim_sessions" => {
-                if let Ok(v) = serde_json::from_value::<SwimSession>(serde_json::to_value(record.clone())?) {
-                    cache.swims.push(v);
-                }
-            }
-            "swim_galas" => {
-                if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) {
-                    cache.galas.push(v);
-                }
-            }
-            "qualifying_times" => {
-                if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) {
-                    cache.qts.push(v);
-                }
-            }
-            "swim_goals" => {
-                if let Ok(v) = serde_json::from_value::<SwimGoal>(serde_json::to_value(record.clone())?) {
-                    cache.swim_goals.push(v);
-                }
-            }
-            "flashcards" => {
-                if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) {
-                    cache.flashcards.push(v);
-                }
-            }
+            "tasks" => if let Ok(v) = serde_json::from_value::<Task>(serde_json::to_value(record.clone())?) { cache.tasks.push(v); },
+            "school_notes" => if let Ok(v) = serde_json::from_value::<SchoolNote>(serde_json::to_value(record.clone())?) { cache.notes.push(v); },
+            "school_grades" => if let Ok(v) = serde_json::from_value::<SchoolGrade>(serde_json::to_value(record.clone())?) { cache.grades.push(v); },
+            "swim_sessions" => if let Ok(v) = serde_json::from_value::<SwimSession>(serde_json::to_value(record.clone())?) { cache.swims.push(v); },
+            "swim_galas" => if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) { cache.galas.push(v); },
+            "qualifying_times" => if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) { cache.qts.push(v); },
+            "swim_goals" => if let Ok(v) = serde_json::from_value::<SwimGoal>(serde_json::to_value(record.clone())?) { cache.swim_goals.push(v); },
+            "flashcards" => if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) { cache.flashcards.push(v); },
             _ => {}
         }
         
-        let _ = fs::write(&self.storage_path, serde_json::to_string(&*cache).unwrap());
+        let json_data = serde_json::to_string(&*cache).map_err(|e| anyhow!("Serialization error: {}", e))?;
+        fs::write(&self.storage_path, json_data).map_err(|e| anyhow!("Disk write error: {}", e))?;
+        
         Ok(record)
     }
 
@@ -290,15 +283,18 @@ impl TrailbaseService {
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
         let is_offline = self.is_offline.load(Ordering::Relaxed);
+        let mut sync_needed = is_offline;
         
         if !is_offline {
-            let _ = self.client.records(collection).update(record.get_id(), &serde_json::to_value(&record)?).await;
+            if self.client.records(collection).update(record.get_id(), &serde_json::to_value(&record)?).await.is_err() {
+                sync_needed = true;
+            }
         }
 
         let mut cache = self.cache.lock().await;
         let record_id = record.get_id();
 
-        if is_offline {
+        if sync_needed {
             cache.pending_sync.push(SyncOp::Update { 
                 collection: collection.to_string(), 
                 id: record_id.to_string(),
@@ -306,63 +302,16 @@ impl TrailbaseService {
             });
         }
         
+        // Update local arrays...
         match collection {
-            "tasks" => {
-                if let Ok(v) = serde_json::from_value::<Task>(serde_json::to_value(record.clone())?) {
-                    if let Some(pos) = cache.tasks.iter().position(|r| r.get_id() == record_id) {
-                        cache.tasks[pos] = v;
-                    }
-                }
-            }
-            "school_notes" => {
-                if let Ok(v) = serde_json::from_value::<SchoolNote>(serde_json::to_value(record.clone())?) {
-                    if let Some(pos) = cache.notes.iter().position(|r| r.get_id() == record_id) {
-                        cache.notes[pos] = v;
-                    }
-                }
-            }
-            "school_grades" => {
-                if let Ok(v) = serde_json::from_value::<SchoolGrade>(serde_json::to_value(record.clone())?) {
-                    if let Some(pos) = cache.grades.iter().position(|r| r.get_id() == record_id) {
-                        cache.grades[pos] = v;
-                    }
-                }
-            }
-            "swim_sessions" => {
-                if let Ok(v) = serde_json::from_value::<SwimSession>(serde_json::to_value(record.clone())?) {
-                    if let Some(pos) = cache.swims.iter().position(|r| r.get_id() == record_id) {
-                        cache.swims[pos] = v;
-                    }
-                }
-            }
-            "swim_galas" => {
-                if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) {
-                    if let Some(pos) = cache.galas.iter().position(|r| r.get_id() == record_id) {
-                        cache.galas[pos] = v;
-                    }
-                }
-            }
-            "qualifying_times" => {
-                if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) {
-                    if let Some(pos) = cache.qts.iter().position(|r| r.get_id() == record_id) {
-                        cache.qts[pos] = v;
-                    }
-                }
-            }
-            "swim_goals" => {
-                if let Ok(v) = serde_json::from_value::<SwimGoal>(serde_json::to_value(record.clone())?) {
-                    if let Some(pos) = cache.swim_goals.iter().position(|r| r.get_id() == record_id) {
-                        cache.swim_goals[pos] = v;
-                    }
-                }
-            }
-            "flashcards" => {
-                if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) {
-                    if let Some(pos) = cache.flashcards.iter().position(|r| r.get_id() == record_id) {
-                        cache.flashcards[pos] = v;
-                    }
-                }
-            }
+            "tasks" => if let Ok(v) = serde_json::from_value::<Task>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.tasks.iter().position(|r| r.get_id() == record_id) { cache.tasks[pos] = v; } }
+            "school_notes" => if let Ok(v) = serde_json::from_value::<SchoolNote>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.notes.iter().position(|r| r.get_id() == record_id) { cache.notes[pos] = v; } }
+            "school_grades" => if let Ok(v) = serde_json::from_value::<SchoolGrade>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.grades.iter().position(|r| r.get_id() == record_id) { cache.grades[pos] = v; } }
+            "swim_sessions" => if let Ok(v) = serde_json::from_value::<SwimSession>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.swims.iter().position(|r| r.get_id() == record_id) { cache.swims[pos] = v; } }
+            "swim_galas" => if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.galas.iter().position(|r| r.get_id() == record_id) { cache.galas[pos] = v; } }
+            "qualifying_times" => if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.qts.iter().position(|r| r.get_id() == record_id) { cache.qts[pos] = v; } }
+            "swim_goals" => if let Ok(v) = serde_json::from_value::<SwimGoal>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.swim_goals.iter().position(|r| r.get_id() == record_id) { cache.swim_goals[pos] = v; } }
+            "flashcards" => if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.flashcards.iter().position(|r| r.get_id() == record_id) { cache.flashcards[pos] = v; } }
             _ => {},
         }
         
@@ -376,21 +325,23 @@ impl TrailbaseService {
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
         let is_offline = self.is_offline.load(Ordering::Relaxed);
+        let mut sync_needed = is_offline;
 
         if !is_offline {
-            let _ = self.client.records(collection).delete(record_id).await;
+            if self.client.records(collection).delete(record_id).await.is_err() {
+                sync_needed = true;
+            }
         }
 
         let mut cache = self.cache.lock().await; 
 
-        if is_offline {
+        if sync_needed {
             cache.pending_sync.push(SyncOp::Delete { 
                 collection: collection.to_string(), 
                 id: record_id.to_string() 
             });
         }
 
-        // Remove from cache based on collection type
         match collection {
             "tasks" => cache.tasks.retain(|r: &Task| r.get_id() != record_id), 
             "school_notes" => cache.notes.retain(|r: &SchoolNote| r.get_id() != record_id), 
@@ -417,35 +368,7 @@ impl TrailbaseService {
         if self.is_offline.load(Ordering::Relaxed) {
             return Err(anyhow!("Cannot refresh while offline"));
         }
-
-        let mut data = self.cache.lock().await;
-        
-        if let Ok(tasks) = Self::fetch_remote::<Task>(&self.client, "tasks", &self.user_id).await {
-            data.tasks = tasks;
-        }
-        if let Ok(notes) = Self::fetch_remote::<SchoolNote>(&self.client, "school_notes", &self.user_id).await {
-            data.notes = notes;
-        }
-        if let Ok(grades) = Self::fetch_remote::<SchoolGrade>(&self.client, "school_grades", &self.user_id).await {
-            data.grades = grades;
-        }
-        if let Ok(swims) = Self::fetch_remote::<SwimSession>(&self.client, "swim_sessions", &self.user_id).await {
-            data.swims = swims;
-        }
-        if let Ok(galas) = Self::fetch_remote::<SwimGala>(&self.client, "swim_galas", &self.user_id).await {
-            data.galas = galas;
-        }
-        if let Ok(qts) = Self::fetch_remote::<QualifyingTime>(&self.client, "qualifying_times", &self.user_id).await {
-            data.qts = qts;
-        }
-        if let Ok(swim_goals) = Self::fetch_remote::<SwimGoal>(&self.client, "swim_goals", &self.user_id).await {
-            data.swim_goals = swim_goals;
-        }
-        if let Ok(flashcards) = Self::fetch_remote::<SchoolFlashcard>(&self.client, "flashcards", &self.user_id).await {
-            data.flashcards = flashcards;
-        }
-
-        let _ = fs::write(&self.storage_path, serde_json::to_string(&*data).unwrap());
+        Self::sync_all_remote(&self.client, &self.cache, &self.storage_path, &self.user_id).await;
         Ok(())
     }
 }
