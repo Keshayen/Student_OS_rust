@@ -10,6 +10,8 @@ export const UI = {
         viewTitle: document.getElementById('view-title'),
         connectionBanner: document.getElementById('connection-banner'),
         modalOverlay: document.getElementById('modal-overlay'),
+        deleteModal: document.getElementById('delete-modal'),
+        deleteItemType: document.getElementById('delete-item-type'),
         syncBtn: document.getElementById('sync-btn'),
         entryType: document.getElementById('entry-type'),
         modalDynamicFields: document.getElementById('modal-dynamic-fields')
@@ -67,7 +69,7 @@ export const UI = {
 
             card.innerHTML = `
                 <div class="card-actions">
-                    <div class="action-btn delete" onclick="window.app.handleDelete('${item.type}', '${item.id}')">
+                    <div class="action-btn delete" data-id="${item.id}" data-type="${item.type}">
                         <i data-lucide="trash-2"></i>
                     </div>
                 </div>
@@ -76,6 +78,13 @@ export const UI = {
                 <div class="card-content">${item.content}</div>
                 <div class="card-meta">${metaHtml}</div>
             `;
+            
+            // Add listener to the specific delete button in this card
+            card.querySelector('.delete').addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.app.handleDelete(item.type, item.id);
+            });
+
             this.elements.dataContainer.appendChild(card);
         });
 

@@ -16,6 +16,7 @@ class App {
         this.currentCollection = 'all';
         this.searchQuery = "";
         this.isSyncing = false;
+        this.pendingDelete = null;
     }
 
     async init() {
@@ -60,8 +61,15 @@ class App {
         UI.elements.entryType.onchange = () => UI.updateModalFields();
         document.getElementById('save-entry-btn').onclick = () => this.handleSave();
 
-        // Close modal on outside click
-        window.onclick = (e) => { if (e.target == UI.elements.modalOverlay) UI.hideModal(); };
+        // Delete Modal
+        document.getElementById('cancel-delete-btn').onclick = () => this.closeDeleteModal();
+        document.getElementById('confirm-delete-btn').onclick = () => this.confirmDelete();
+
+        // Close modals on outside click
+        window.onclick = (e) => { 
+            if (e.target == UI.elements.modalOverlay) UI.hideModal(); 
+            if (e.target == UI.elements.deleteModal) this.closeDeleteModal();
+        };
 
         // Connection Changes
         Api.onConnectionChange((isOffline) => {
@@ -195,7 +203,7 @@ class App {
             record.schoolTaskType = null;
             record.linkedNoteIds = null;
             record.streak = 0;
-            record.completedDates = "[]"; // Must be a JSON string for this schema
+            record.completedDates = "[]"; 
             record.frequency = document.getElementById('entry-frequency').value;
             record.interval = 1;
             record.intervalUnit = "days";
@@ -225,7 +233,6 @@ class App {
         try {
             await Api.createRecord(collection, record);
             UI.hideModal();
-            // Reset form
             document.getElementById('entry-title').value = "";
             await this.refreshAll();
         } catch (e) {
@@ -233,17 +240,41 @@ class App {
         }
     }
 
-    async handleDelete(type, id) {
-        if (!confirm(`Delete this ${type}?`)) return;
+    handleDelete(type, id) {
+        this.pendingDelete = { type, id };
+        UI.elements.deleteItemType.textContent = type;
+        UI.elements.deleteModal.classList.remove('hidden');
+    }
+
+    closeDeleteModal() {
+        UI.elements.deleteModal.classList.add('hidden');
+        this.pendingDelete = null;
+    }
+
+    async confirmDelete() {
+        if (!this.pendingDelete) return;
+        
+        const { type, id } = this.pendingDelete;
         const typeMap = {
-            'Habit': 'tasks', 'School Task': 'tasks', 'Note': 'school_notes',
-            'Grade': 'school_grades', 'Swim Session': 'swim_sessions',
-            'Qualifying Time': 'qualifying_times', 'Flashcard': 'flashcards'
+            'Habit': 'tasks', 
+            'School Task': 'tasks', 
+            'Note': 'school_notes',
+            'Grade': 'school_grades', 
+            'Swim Session': 'swim_sessions',
+            'Swim Gala': 'swim_galas',
+            'Swim Goal': 'swim_goals',
+            'Qualifying Time': 'qualifying_times', 
+            'Flashcard': 'flashcards'
         };
+
         try {
             await Api.deleteRecord(typeMap[type], id);
+            this.closeDeleteModal();
             await this.refreshAll();
-        } catch (e) { alert("Delete failed: " + e); }
+        } catch (e) { 
+            alert("Delete failed: " + e); 
+            this.closeDeleteModal();
+        }
     }
 
     isHabitDoneToday(habit) {

@@ -153,6 +153,35 @@ body {
     gap: 16px;
 }
 
+.action-btn {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: var(--text-bright);
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.action-btn:hover {
+    background: var(--accent-blue);
+    color: white;
+    border-color: var(--accent-blue);
+    transform: scale(1.1);
+}
+
+.action-btn.delete:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+}
+
 .modal-input {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--glass-border);
@@ -176,6 +205,7 @@ textarea.modal-input {
     margin-top: 24px;
     display: flex;
     justify-content: flex-end;
+    gap: 12px;
 }
 
 .btn {
@@ -194,6 +224,20 @@ textarea.modal-input {
 
 .btn-primary:hover {
     filter: brightness(1.1);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.btn-danger {
+    background: #ef4444;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
 }
 
 .icon-btn-small {
