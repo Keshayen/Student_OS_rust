@@ -1,5 +1,5 @@
 use crate::core::db::TrailbaseService;
-use crate::core::models::{Task, SchoolNote, SchoolFlashcard, SchoolGrade, SwimGala, SwimGoal, SwimSession, QualifyingTime};
+use crate::core::models::{Task, SchoolNote, SchoolFlashcard, SchoolGrade, SwimGala, SwimSession, QualifyingTime};
 use tauri::{State, Manager};
 use serde_json::Value;
 use tokio::sync::Mutex; 
@@ -54,12 +54,6 @@ async fn get_qualifying_times(state: State<'_, AppState>) -> Result<Vec<Qualifyi
 }
 
 #[tauri::command]
-async fn get_swim_goals(state: State<'_, AppState>) -> Result<Vec<SwimGoal>, String> {
-    let trailbase = state.trailbase_service.lock().await;
-    (*trailbase).get_swim_goals().await.map_err(|e: anyhow::Error| e.to_string())
-}
-
-#[tauri::command]
 async fn create_record_command(state: State<'_, AppState>, collection: String, record_json: String) -> Result<Value, String> {
     let trailbase = state.trailbase_service.lock().await;
     let record: Value = serde_json::from_str(&record_json).map_err(|e: serde_json::Error| e.to_string())?;
@@ -97,11 +91,6 @@ async fn create_record_command(state: State<'_, AppState>, collection: String, r
         },
         "qualifying_times" => {
             let record: QualifyingTime = serde_json::from_value(record).map_err(|e: serde_json::Error| e.to_string())?;
-            let created_record = trailbase.create_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
-            serde_json::to_value(created_record).map_err(|e: serde_json::Error| e.to_string())
-        },
-        "swim_goals" => {
-            let record: SwimGoal = serde_json::from_value(record).map_err(|e: serde_json::Error| e.to_string())?;
             let created_record = trailbase.create_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
             serde_json::to_value(created_record).map_err(|e: serde_json::Error| e.to_string())
         },
@@ -150,11 +139,6 @@ async fn update_record_command(state: State<'_, AppState>, collection: String, r
             let updated_record = trailbase.update_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
             serde_json::to_value(updated_record).map_err(|e: serde_json::Error| e.to_string())
         },
-        "swim_goals" => {
-            let record: SwimGoal = serde_json::from_value(record).map_err(|e: serde_json::Error| e.to_string())?;
-            let updated_record = trailbase.update_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
-            serde_json::to_value(updated_record).map_err(|e: serde_json::Error| e.to_string())
-        },
         _ => Err(format!("Unknown collection: {}", collection)),
     }
 }
@@ -164,7 +148,6 @@ async fn delete_record_command(state: State<'_, AppState>, collection: String, r
     let trailbase = state.trailbase_service.lock().await;
 
     match collection.as_str() {
-
         "tasks" => trailbase.delete_record::<Task>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
         "school_notes" => trailbase.delete_record::<SchoolNote>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
         "flashcards" => trailbase.delete_record::<SchoolFlashcard>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
@@ -172,7 +155,6 @@ async fn delete_record_command(state: State<'_, AppState>, collection: String, r
         "swim_sessions" => trailbase.delete_record::<SwimSession>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
         "swim_galas" => trailbase.delete_record::<SwimGala>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
         "qualifying_times" => trailbase.delete_record::<QualifyingTime>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
-        "swim_goals" => trailbase.delete_record::<SwimGoal>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
         _ => Err(format!("Unknown collection: {}", collection)),
     }
 }
@@ -213,7 +195,6 @@ pub fn run() {
                 get_swim_sessions,
                 get_swim_galas,
                 get_qualifying_times,
-                get_swim_goals,
                 create_record_command,
                 update_record_command,
                 delete_record_command,
@@ -247,4 +228,3 @@ pub fn run() {
         }
     });
 }
-

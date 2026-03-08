@@ -10,7 +10,6 @@ class App {
             swims: [],
             galas: [],
             qts: [],
-            goals: [],
             flashcards: [],
         };
         this.currentCollection = 'all';
@@ -86,18 +85,17 @@ class App {
     async refreshAll(isSilent = false) {
         if (!isSilent) UI.setLoading(true);
         try {
-            const [tasks, notes, grades, swims, galas, qts, goals, flashcards] = await Promise.all([
+            const [tasks, notes, grades, swims, galas, qts, flashcards] = await Promise.all([
                 Api.getTasks(),
                 Api.getNotes(),
                 Api.getGrades(),
                 Api.getSwimSessions(),
                 Api.getSwimGalas(),
                 Api.getQualifyingTimes(),
-                Api.getSwimGoals(),
                 Api.getFlashcards()
             ]);
 
-            this.state = { tasks, notes, grades, swims, galas, qts, goals, flashcards };
+            this.state = { tasks, notes, grades, swims, galas, qts, flashcards };
             this.render();
         } catch (error) {
             console.error("Refresh failed:", error);
@@ -163,11 +161,6 @@ class App {
                 isCompleted: q.isAchieved,
                 meta: [{ icon: 'map-pin', text: q.course.toUpperCase() }]
             }));
-            this.state.goals.forEach(g => items.push({
-                id: g.id, type: 'Swim Goal', title: g.targetDescription, content: `Current: ${g.currentValue} / Target: ${g.targetValue}`,
-                isCompleted: g.isAchieved,
-                meta: [{ icon: 'target', text: g.goalType }]
-            }));
         }
 
         // Flashcards
@@ -196,6 +189,14 @@ class App {
             record.content = document.getElementById('entry-content').value;
             record.subject = document.getElementById('entry-subject').value;
             record.createdAt = new Date().toISOString();
+        } else if (type === 'school_grades') {
+            record.subject = document.getElementById('entry-subject').value;
+            record.date = document.getElementById('entry-date').value + "T12:00:00.000000";
+            record.score = parseFloat(document.getElementById('entry-score').value) || 0;
+            record.total = parseFloat(document.getElementById('entry-total').value) || 100;
+            record.cycle = document.getElementById('entry-cycle').value;
+            record.category = document.getElementById('entry-category').value;
+            record.schoolYear = parseInt(document.getElementById('entry-year').value) || 2026;
         } else if (type === 'tasks') {
             record.taskType = "school";
             record.isCompleted = 0;
@@ -263,14 +264,6 @@ class App {
             record.course = document.getElementById('entry-course').value;
             record.isAchieved = 0;
             record.name = title; 
-        } else if (type === 'swim_goals') {
-            record.goalType = document.getElementById('entry-goal-type').value;
-            record.targetValue = parseFloat(document.getElementById('entry-target-value').value) || 0;
-            record.currentValue = parseFloat(document.getElementById('entry-current-value').value) || 0;
-            const dateVal = document.getElementById('entry-target-date').value;
-            record.targetDate = dateVal ? dateVal + "T12:00:00.000000" : new Date().toISOString().replace('Z', '000');
-            record.isAchieved = 0;
-            record.targetDescription = title;
         }
 
         const collection = type === 'habits' ? 'tasks' : type;
@@ -307,7 +300,6 @@ class App {
             'Grade': 'school_grades', 
             'Swim Session': 'swim_sessions',
             'Swim Gala': 'swim_galas',
-            'Swim Goal': 'swim_goals',
             'Qualifying Time': 'qualifying_times', 
             'Flashcard': 'flashcards'
         };

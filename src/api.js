@@ -8,7 +8,6 @@ export const Api = {
     async getSwimSessions() { return await invoke("get_swim_sessions"); },
     async getSwimGalas() { return await invoke("get_swim_galas"); },
     async getQualifyingTimes() { return await invoke("get_qualifying_times"); },
-    async getSwimGoals() { return await invoke("get_swim_goals"); },
     async getFlashcards() { return await invoke("get_flashcards"); },
     
     async createRecord(collection, record) {

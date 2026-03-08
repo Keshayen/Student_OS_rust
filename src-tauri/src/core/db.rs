@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc; // Keep std::sync::Arc
 use tokio::sync::Mutex; // Use tokio's Mutex
+use directories::ProjectDirs;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum SyncOp {
@@ -21,7 +22,6 @@ pub struct AppData {
     pub swims: Vec<SwimSession>,
     pub galas: Vec<SwimGala>,
     pub qts: Vec<QualifyingTime>,
-    pub swim_goals: Vec<SwimGoal>,
     pub flashcards: Vec<SchoolFlashcard>,
     pub pending_sync: Vec<SyncOp>, // Queue for offline changes
 }
@@ -166,7 +166,6 @@ impl TrailbaseService {
         let _ = Self::fetch_remote::<SwimSession>(client, "swim_sessions", user_id).await.map(|items| data.swims = items);
         let _ = Self::fetch_remote::<SwimGala>(client, "swim_galas", user_id).await.map(|items| data.galas = items);
         let _ = Self::fetch_remote::<QualifyingTime>(client, "qualifying_times", user_id).await.map(|items| data.qts = items);
-        let _ = Self::fetch_remote::<SwimGoal>(client, "swim_goals", user_id).await.map(|items| data.swim_goals = items);
         let _ = Self::fetch_remote::<SchoolFlashcard>(client, "flashcards", user_id).await.map(|items| data.flashcards = items);
         let _ = fs::write(storage_path, serde_json::to_string(&*data).unwrap());
         println!("[Data] Remote sync complete.");
@@ -205,11 +204,6 @@ impl TrailbaseService {
     pub async fn get_qualifying_times(&self) -> Result<Vec<QualifyingTime>> {
         let cache = self.cache.lock().await;
         Ok(cache.qts.clone())
-    }
-
-    pub async fn get_swim_goals(&self) -> Result<Vec<SwimGoal>> {
-        let cache = self.cache.lock().await;
-        Ok(cache.swim_goals.clone())
     }
 
     async fn fetch_remote<T: serde::de::DeserializeOwned + 'static>(client: &Client, coll: &str, user_id: &str) -> Result<Vec<T>> {
@@ -266,7 +260,6 @@ impl TrailbaseService {
             "swim_sessions" => if let Ok(v) = serde_json::from_value::<SwimSession>(serde_json::to_value(record.clone())?) { cache.swims.push(v); },
             "swim_galas" => if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) { cache.galas.push(v); },
             "qualifying_times" => if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) { cache.qts.push(v); },
-            "swim_goals" => if let Ok(v) = serde_json::from_value::<SwimGoal>(serde_json::to_value(record.clone())?) { cache.swim_goals.push(v); },
             "flashcards" => if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) { cache.flashcards.push(v); },
             _ => {}
         }
@@ -310,7 +303,6 @@ impl TrailbaseService {
             "swim_sessions" => if let Ok(v) = serde_json::from_value::<SwimSession>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.swims.iter().position(|r| r.get_id() == record_id) { cache.swims[pos] = v; } }
             "swim_galas" => if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.galas.iter().position(|r| r.get_id() == record_id) { cache.galas[pos] = v; } }
             "qualifying_times" => if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.qts.iter().position(|r| r.get_id() == record_id) { cache.qts[pos] = v; } }
-            "swim_goals" => if let Ok(v) = serde_json::from_value::<SwimGoal>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.swim_goals.iter().position(|r| r.get_id() == record_id) { cache.swim_goals[pos] = v; } }
             "flashcards" => if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.flashcards.iter().position(|r| r.get_id() == record_id) { cache.flashcards[pos] = v; } }
             _ => {},
         }
@@ -349,11 +341,10 @@ impl TrailbaseService {
             "swim_sessions" => cache.swims.retain(|r: &SwimSession| r.get_id() != record_id), 
             "swim_galas" => cache.galas.retain(|r: &SwimGala| r.get_id() != record_id), 
             "qualifying_times" => cache.qts.retain(|r: &QualifyingTime| r.get_id() != record_id), 
-            "swim_goals" => cache.swim_goals.retain(|r: &SwimGoal| r.get_id() != record_id), 
             "flashcards" => cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id), 
             _ => {},
         }
-        let _ = fs::write(&self.storage_path, serde_json::to_string(&*cache).unwrap());
+        let _ = fs::write(&self.storage_path, serde_json::to_string(&*data).unwrap());
         Ok(())
     }
 

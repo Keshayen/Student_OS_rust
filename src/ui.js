@@ -113,6 +113,27 @@ export const UI = {
                 </select>
                 <textarea id="entry-content" class="modal-input" placeholder="Note content..."></textarea>
             `;
+        } else if (type === 'school_grades') {
+            html = `
+                <select id="entry-subject" class="modal-input">
+                    ${subjectOptions}
+                </select>
+                <input type="date" id="entry-date" class="modal-input" value="${new Date().toISOString().split('T')[0]}">
+                <div class="modal-row" style="display: flex; gap: 10px;">
+                    <input type="number" id="entry-score" class="modal-input" placeholder="Score" style="flex: 1">
+                    <input type="number" id="entry-total" class="modal-input" placeholder="Total" style="flex: 1">
+                </div>
+                <select id="entry-cycle" class="modal-input">
+                    <option value="cycle1">Cycle 1</option>
+                    <option value="cycle2">Cycle 2</option>
+                    <option value="cycle3">Cycle 3</option>
+                </select>
+                <select id="entry-category" class="modal-input">
+                    <option value="cass">CASS</option>
+                    <option value="summative">Summative</option>
+                </select>
+                <input type="number" id="entry-year" class="modal-input" placeholder="School Year" value="2026">
+            `;
         } else if (type === 'tasks') {
             html = `
                 <select id="entry-subject" class="modal-input">
@@ -179,18 +200,6 @@ export const UI = {
                     <option value="lcm">LCM (50m)</option>
                     <option value="scm">SCM (25m)</option>
                 </select>
-            `;
-        } else if (type === 'swim_goals') {
-            html = `
-                <select id="entry-goal-type" class="modal-input">
-                    <option value="distance">Distance</option>
-                    <option value="timeImprovement">Time Improvement</option>
-                    <option value="consistency">Consistency</option>
-                    <option value="technique">Technique</option>
-                </select>
-                <input type="number" id="entry-target-value" class="modal-input" placeholder="Target Value">
-                <input type="number" id="entry-current-value" class="modal-input" placeholder="Current Value" value="0">
-                <input type="date" id="entry-target-date" class="modal-input">
             `;
         }
 

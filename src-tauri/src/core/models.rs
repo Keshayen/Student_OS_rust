@@ -202,44 +202,6 @@ impl Identifiable for QualifyingTime {
     fn set_id(&mut self, id: String) { self.id = id; }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum SwimGoalType {
-    TimeImprovement,
-    Distance,
-    Consistency,
-    Technique,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SwimGoal {
-    #[serde(deserialize_with = "deserialize_id")]
-    pub id: String,
-    #[serde(rename = "firestoreId")]
-    pub firestore_id: Option<String>,
-    #[serde(rename = "userId")]
-    pub user_id: String,
-    #[serde(rename = "goalType")]
-    pub goal_type: SwimGoalType,
-    #[serde(rename = "targetDescription")]
-    pub target_description: String,
-    #[serde(rename = "currentValue")]
-    pub current_value: f64,
-    #[serde(rename = "targetValue")]
-    pub target_value: f64,
-    #[serde(with = "chrono::serde::ts_seconds_option")]
-    #[serde(rename = "targetDate")]
-    pub target_date: Option<DateTime<Utc>>,
-    #[serde(rename = "isAchieved", with = "bool_as_int")]
-    pub is_achieved: bool,
-    pub subject: Option<String>,
-}
-
-impl Identifiable for SwimGoal {
-    fn get_id(&self) -> &str { &self.id }
-    fn set_id(&mut self, id: String) { self.id = id; }
-}
-
 fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
 where D: Deserializer<'de> {
     let v: serde_json::Value = Deserialize::deserialize(deserializer)?;
