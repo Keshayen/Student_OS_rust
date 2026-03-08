@@ -154,10 +154,19 @@ class App {
                 id: s.id, type: 'Swim Session', title: `${s.distance}m ${s.stroke}`, content: s.notes || "No notes",
                 meta: [{ icon: 'timer', text: `${Math.floor(s.duration/60)}m` }, { icon: 'calendar', text: s.date }]
             }));
+            this.state.galas.forEach(g => items.push({
+                id: g.id, type: 'Swim Gala', title: g.name, content: g.location,
+                meta: [{ icon: 'map-pin', text: g.course.toUpperCase() }, { icon: 'calendar', text: g.date }]
+            }));
             this.state.qts.forEach(q => items.push({
                 id: q.id, type: 'Qualifying Time', title: q.eventName, content: `Target: ${this.formatDuration(q.targetTime)}`,
                 isCompleted: q.isAchieved,
-                meta: [{ icon: 'map-pin', text: q.course }]
+                meta: [{ icon: 'map-pin', text: q.course.toUpperCase() }]
+            }));
+            this.state.goals.forEach(g => items.push({
+                id: g.id, type: 'Swim Goal', title: g.targetDescription, content: `Current: ${g.currentValue} / Target: ${g.targetValue}`,
+                isCompleted: g.isAchieved,
+                meta: [{ icon: 'target', text: g.goalType }]
             }));
         }
 
@@ -226,6 +235,42 @@ class App {
                 record.reminderHour = null;
                 record.reminderMinute = null;
             }
+        } else if (type === 'swim_sessions') {
+            record.date = document.getElementById('entry-date').value + "T12:00:00.000000";
+            record.distance = parseFloat(document.getElementById('entry-distance').value) || 0;
+            record.duration = parseInt(document.getElementById('entry-duration').value) || 0;
+            record.stroke = document.getElementById('entry-stroke').value;
+            record.notes = document.getElementById('entry-notes').value || "";
+            record.effortLevel = 5; 
+            record.poolLength = 25.0; 
+            record.sets = "[]"; 
+            record.workoutEffect = document.getElementById('entry-workout-effect').value || ""; 
+            record.heartRateAvg = parseInt(document.getElementById('entry-hr-avg').value) || 0;
+            record.heartRateMax = parseInt(document.getElementById('entry-hr-max').value) || 0;
+            record.caloriesBurned = null;
+            record.location = null;
+        }
+ else if (type === 'swim_galas') {
+            record.date = document.getElementById('entry-date').value + "T12:00:00.000000";
+            record.location = document.getElementById('entry-location').value;
+            record.course = document.getElementById('entry-course').value;
+            record.events = "[]";
+            record.name = title;
+        } else if (type === 'qualifying_times') {
+            record.eventName = document.getElementById('entry-event-name').value;
+            // Convert user-entered seconds to milliseconds for DB
+            record.targetTime = (parseFloat(document.getElementById('entry-target-time').value) || 0) * 1000;
+            record.course = document.getElementById('entry-course').value;
+            record.isAchieved = 0;
+            record.name = title; 
+        } else if (type === 'swim_goals') {
+            record.goalType = document.getElementById('entry-goal-type').value;
+            record.targetValue = parseFloat(document.getElementById('entry-target-value').value) || 0;
+            record.currentValue = parseFloat(document.getElementById('entry-current-value').value) || 0;
+            const dateVal = document.getElementById('entry-target-date').value;
+            record.targetDate = dateVal ? dateVal + "T12:00:00.000000" : new Date().toISOString().replace('Z', '000');
+            record.isAchieved = 0;
+            record.targetDescription = title;
         }
 
         const collection = type === 'habits' ? 'tasks' : type;

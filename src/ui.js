@@ -140,6 +140,58 @@ export const UI = {
                 </div>
                 <input type="time" id="entry-reminder-time" class="modal-input hidden">
             `;
+        } else if (type === 'swim_sessions') {
+            html = `
+                <input type="date" id="entry-date" class="modal-input" value="${new Date().toISOString().split('T')[0]}">
+                <input type="number" id="entry-distance" class="modal-input" placeholder="Distance (m)">
+                <input type="number" id="entry-duration" class="modal-input" placeholder="Duration (seconds)">
+                <select id="entry-stroke" class="modal-input">
+                    <option value="mixed">Mixed</option>
+                    <option value="freestyle">Freestyle</option>
+                    <option value="breaststroke">Breaststroke</option>
+                    <option value="backstroke">Backstroke</option>
+                    <option value="butterfly">Butterfly</option>
+                    <option value="im">IM</option>
+                </select>
+                <input type="text" id="entry-workout-effect" class="modal-input" placeholder="Workout Effect (e.g. Aerobic)">
+                <div class="modal-row" style="display: flex; gap: 10px;">
+                    <input type="number" id="entry-hr-avg" class="modal-input" placeholder="Avg HR" style="flex: 1">
+                    <input type="number" id="entry-hr-max" class="modal-input" placeholder="Max HR" style="flex: 1">
+                </div>
+                <textarea id="entry-notes" class="modal-input" placeholder="Notes..."></textarea>
+            `;
+        }
+ else if (type === 'swim_galas') {
+            html = `
+                <input type="date" id="entry-date" class="modal-input" value="${new Date().toISOString().split('T')[0]}">
+                <input type="text" id="entry-location" class="modal-input" placeholder="Location">
+                <select id="entry-course" class="modal-input">
+                    <option value="lcm">LCM (50m)</option>
+                    <option value="scm">SCM (25m)</option>
+                    <option value="scy">SCY (25y)</option>
+                </select>
+            `;
+        } else if (type === 'qualifying_times') {
+            html = `
+                <input type="text" id="entry-event-name" class="modal-input" placeholder="Event (e.g. 50m Free)">
+                <input type="number" id="entry-target-time" class="modal-input" placeholder="Target Time (seconds)">
+                <select id="entry-course" class="modal-input">
+                    <option value="lcm">LCM (50m)</option>
+                    <option value="scm">SCM (25m)</option>
+                </select>
+            `;
+        } else if (type === 'swim_goals') {
+            html = `
+                <select id="entry-goal-type" class="modal-input">
+                    <option value="distance">Distance</option>
+                    <option value="timeImprovement">Time Improvement</option>
+                    <option value="consistency">Consistency</option>
+                    <option value="technique">Technique</option>
+                </select>
+                <input type="number" id="entry-target-value" class="modal-input" placeholder="Target Value">
+                <input type="number" id="entry-current-value" class="modal-input" placeholder="Current Value" value="0">
+                <input type="date" id="entry-target-date" class="modal-input">
+            `;
         }
 
         this.elements.modalDynamicFields.innerHTML = html;

@@ -148,6 +148,14 @@ pub struct SwimSession {
     pub heart_rate_avg: Option<i32>,
     #[serde(rename = "heartRateMax")]
     pub heart_rate_max: Option<i32>,
+    #[serde(rename = "effortLevel")]
+    pub effort_level: i32,
+    #[serde(rename = "poolLength")]
+    pub pool_length: f64,
+    pub sets: String, // JSON string
+    #[serde(rename = "caloriesBurned")]
+    pub calories_burned: Option<f64>,
+    pub location: Option<String>,
 }
 
 impl Identifiable for SwimSession {
