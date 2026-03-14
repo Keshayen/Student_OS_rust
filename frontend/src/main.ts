@@ -95,7 +95,7 @@ async function init() {
             </button>
           </div>
           <div class="p-6 overflow-y-auto space-y-4">
-            <div class="space-y-1">
+            <div class="space-y-1" id="type-selection-container">
               <label class="text-[10px] font-bold uppercase text-slate-500 ml-1">Entry Type</label>
               <select id="entry-type" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500">
                 <option value="school_notes">Note</option>
@@ -149,6 +149,7 @@ async function init() {
   const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
   const entryTypeSelect = document.getElementById('entry-type') as HTMLSelectElement;
   const dynamicFields = document.getElementById('dynamic-fields') as HTMLElement;
+  const typeSelectionContainer = document.getElementById('type-selection-container') as HTMLElement;
   const deleteModal = document.getElementById('delete-modal') as HTMLElement;
   const confirmDeleteBtn = document.getElementById('confirm-delete-btn') as HTMLButtonElement;
   const cancelDeleteBtn = document.getElementById('cancel-delete-btn') as HTMLButtonElement;
@@ -754,6 +755,7 @@ async function init() {
            const typeStr = isHabit ? 'habits' : col;
            
            entryTypeSelect.value = typeStr;
+           typeSelectionContainer.classList.add('hidden'); // Hide type selector when editing
            updateModalFields();
            
            // Fetch full base record
@@ -866,6 +868,7 @@ async function init() {
     document.querySelector('h2')!.innerText = "New Entry";
     saveBtn.innerText = "Create Entry";
     
+    typeSelectionContainer.classList.remove('hidden'); // Show type selector for new entries
     modalOverlay.classList.remove('hidden');
     modalOverlay.classList.add('flex');
     updateModalFields();
