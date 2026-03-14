@@ -371,9 +371,17 @@ impl TrailbaseService {
         let is_offline = self.is_offline.load(Ordering::Relaxed);
         let mut sync_needed = is_offline;
 
+        println!("[Data Service] Deleting from '{}' with ID: {} (Offline: {})", collection, record_id, is_offline);
+
+        // Map 'habits' to 'tasks' for underlying operation
+        let effective_collection = if collection == "habits" { "tasks" } else { collection };
+
         if !is_offline {
-            if self.client.records(collection).delete(record_id).await.is_err() {
+            if let Err(e) = self.client.records(effective_collection).delete(record_id).await {
+                println!("[Sync] Remote delete failed for {}/{}: {:?}", effective_collection, record_id, e);
                 sync_needed = true;
+            } else {
+                println!("[Data] Successfully deleted remote record {}/{}", effective_collection, record_id);
             }
         }
 
@@ -381,21 +389,57 @@ impl TrailbaseService {
 
         if sync_needed {
             cache.pending_sync.push(SyncOp::Delete { 
-                collection: collection.to_string(), 
+                collection: effective_collection.to_string(), 
                 id: record_id.to_string() 
             });
         }
 
-        match collection {
-            "tasks" => cache.tasks.retain(|r: &Task| r.get_id() != record_id), 
-            "school_notes" => cache.notes.retain(|r: &SchoolNote| r.get_id() != record_id), 
-            "school_grades" => cache.grades.retain(|r: &SchoolGrade| r.get_id() != record_id), 
-            "swim_sessions" => cache.swims.retain(|r: &SwimSession| r.get_id() != record_id), 
-            "swim_galas" => cache.galas.retain(|r: &SwimGala| r.get_id() != record_id), 
-            "qualifying_times" => cache.qts.retain(|r: &QualifyingTime| r.get_id() != record_id), 
-            "flashcards" => cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id), 
-            _ => {},
+        let mut deleted = false;
+        match effective_collection {
+            "tasks" => {
+                let initial_len = cache.tasks.len();
+                cache.tasks.retain(|r: &Task| r.get_id() != record_id);
+                deleted = cache.tasks.len() < initial_len;
+            }, 
+            "school_notes" => {
+                let initial_len = cache.notes.len();
+                cache.notes.retain(|r: &SchoolNote| r.get_id() != record_id);
+                deleted = cache.notes.len() < initial_len;
+            }, 
+            "school_grades" => {
+                let initial_len = cache.grades.len();
+                cache.grades.retain(|r: &SchoolGrade| r.get_id() != record_id);
+                deleted = cache.grades.len() < initial_len;
+            }, 
+            "swim_sessions" => {
+                let initial_len = cache.swims.len();
+                cache.swims.retain(|r: &SwimSession| r.get_id() != record_id);
+                deleted = cache.swims.len() < initial_len;
+            }, 
+            "swim_galas" => {
+                let initial_len = cache.galas.len();
+                cache.galas.retain(|r: &SwimGala| r.get_id() != record_id);
+                deleted = cache.galas.len() < initial_len;
+            }, 
+            "qualifying_times" => {
+                let initial_len = cache.qts.len();
+                cache.qts.retain(|r: &QualifyingTime| r.get_id() != record_id);
+                deleted = cache.qts.len() < initial_len;
+            }, 
+            "flashcards" => {
+                let initial_len = cache.flashcards.len();
+                cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id);
+                deleted = cache.flashcards.len() < initial_len;
+            }, 
+            _ => return Err(anyhow!("Unknown collection: {}", effective_collection)),
         }
+
+        if deleted {
+            println!("[Data] Local record deleted successfully.");
+        } else {
+            println!("[Warning] No record found to delete in '{}' with ID: {}", effective_collection, record_id);
+        }
+
         if let Ok(json) = serde_json::to_string(&*cache) {
             let _ = fs::write(&self.storage_path, json);
         }

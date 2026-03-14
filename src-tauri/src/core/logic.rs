@@ -54,9 +54,11 @@ impl SpacedRepetitionService {
     }
 }
 
+#[allow(dead_code)]
 pub struct HabitService;
 
 impl HabitService {
+    #[allow(dead_code)]
     pub fn calculate_streak(completed_dates: &[String], _frequency: &TaskFrequency) -> i32 {
         if completed_dates.is_empty() { return 0; }
         // Simple placeholder for now as we transition to raw strings

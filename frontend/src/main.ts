@@ -123,6 +123,18 @@ async function init() {
           </div>
         </div>
       </div>
+
+      <!-- Delete Confirmation Modal -->
+      <div id="delete-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-40 hidden items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-3xl shadow-2xl p-6">
+          <h2 class="text-xl font-bold mb-2">Confirm Deletion</h2>
+          <p class="text-sm text-slate-400 mb-6">Are you sure you want to delete this <span id="delete-item-type" class="text-blue-400 font-bold italic">item</span>? This action cannot be undone.</p>
+          <div class="flex gap-3">
+            <button id="cancel-delete-btn" class="flex-1 px-4 py-2 text-sm font-bold text-slate-400 hover:text-white transition-colors">Cancel</button>
+            <button id="confirm-delete-btn" class="flex-2 bg-red-600 hover:bg-red-500 text-white rounded-xl px-4 py-2 text-sm font-bold shadow-lg shadow-red-500/20 transition-all">Delete Forever</button>
+          </div>
+        </div>
+      </div>
     </div>
   `
 
@@ -137,6 +149,13 @@ async function init() {
   const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
   const entryTypeSelect = document.getElementById('entry-type') as HTMLSelectElement;
   const dynamicFields = document.getElementById('dynamic-fields') as HTMLElement;
+  const deleteModal = document.getElementById('delete-modal') as HTMLElement;
+  const confirmDeleteBtn = document.getElementById('confirm-delete-btn') as HTMLButtonElement;
+  const cancelDeleteBtn = document.getElementById('cancel-delete-btn') as HTMLButtonElement;
+  const deleteItemTypeSpan = document.getElementById('delete-item-type') as HTMLElement;
+
+  let deleteId: string | null = null;
+  let deleteCol: string | null = null;
 
   // -- Render Logic --
 
@@ -716,17 +735,16 @@ async function init() {
        const id = actionBtn.getAttribute('data-id');
        const col = actionBtn.getAttribute('data-col');
        
+       console.log(`[UI] Action: ${action}, ID: ${id}, Original Col: ${col}`);
+       
        if (!id || !col) return;
        
        if (action === 'delete') {
-           if (confirm("Are you sure you want to delete this specific entry? This action cannot be undone.")) {
-               try {
-                   await Api.deleteRecord(col, id);
-                   await fetchData();
-               } catch (err) {
-                   alert("Failed to delete record: " + err);
-               }
-           }
+           deleteId = id;
+           deleteCol = col;
+           deleteItemTypeSpan.innerText = col.replace('school_', '').replace('_', ' ');
+           deleteModal.classList.remove('hidden');
+           deleteModal.classList.add('flex');
            return;
        } else if (action === 'edit') {
            editingRecordId = id;
@@ -864,6 +882,39 @@ async function init() {
   cancelModalBtn.onclick = close;
   entryTypeSelect.onchange = updateModalFields;
   saveBtn.onclick = handleSave;
+
+  const closeDeleteModal = () => {
+    deleteId = null;
+    deleteCol = null;
+    deleteModal.classList.add('hidden');
+    deleteModal.classList.remove('flex');
+  };
+
+  cancelDeleteBtn.onclick = closeDeleteModal;
+
+  confirmDeleteBtn.onclick = async () => {
+    if (!deleteId || !deleteCol) return;
+    
+    try {
+        confirmDeleteBtn.disabled = true;
+        confirmDeleteBtn.innerText = "Deleting...";
+        
+        const apiCol = deleteCol === 'habits' ? 'tasks' : deleteCol;
+        console.log(`[UI] Modal Confirm: Deleting ${deleteId} from ${apiCol}`);
+        
+        await Api.deleteRecord(apiCol, deleteId);
+        console.log(`[UI] Modal Confirm: Deletion success`);
+        
+        closeDeleteModal();
+        await fetchData();
+    } catch (err) {
+        console.error("[UI] Delete failed:", err);
+        alert("Failed to delete record: " + err);
+    } finally {
+        confirmDeleteBtn.disabled = false;
+        confirmDeleteBtn.innerText = "Delete Forever";
+    }
+  };
 
   refreshBtn.onclick = async () => {
     refreshBtn.classList.add('animate-spin');
