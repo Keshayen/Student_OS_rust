@@ -11,6 +11,7 @@
 - [ ] Test UI on small screen/touch interface.
 
 ## UI/UX Enhancements
-- [ ] Add "Edit" and "Delete" actions to the Data Explorer cards.
+- [x] **Verification Needed:** Test the "Sync Queue" functionality. 
+- [x] Add "Edit" and "Delete" actions to the Data Explorer cards.
 - [ ] Improve search filtering (currently searches title, content, and type).
 - [ ] Implement "Add" forms for all data types (Notes, Tasks, etc.).

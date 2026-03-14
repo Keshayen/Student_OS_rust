@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize, Deserializer, Serializer};
-use chrono::{DateTime, Utc};
 
 pub trait Identifiable {
     fn get_id(&self) -> &str;
@@ -49,6 +48,14 @@ pub struct Task {
     pub streak: Option<i32>,
     #[serde(rename = "completedDates")]
     pub completed_dates: Option<serde_json::Value>,
+    #[serde(rename = "reminderEnabled", with = "bool_as_int")]
+    pub reminder_enabled: bool,
+    #[serde(rename = "reminderType")]
+    pub reminder_type: Option<String>,
+    #[serde(rename = "reminderHour")]
+    pub reminder_hour: Option<i32>,
+    #[serde(rename = "reminderMinute")]
+    pub reminder_minute: Option<i32>,
 }
 
 impl Identifiable for Task {
@@ -87,11 +94,17 @@ pub struct SchoolFlashcard {
     pub answer: String,
     #[serde(rename = "srs_interval", default)]
     pub interval: i32,
-    #[serde(rename = "ease_factor", default = "default_ease")]
-    pub ease_factor: serde_json::Value,
+    #[serde(rename = "easeFactor", alias = "ease_factor", deserialize_with = "deserialize_string_flexible", default = "default_ease")]
+    pub ease_factor: String,
     pub repetitions: i32,
     #[serde(rename = "nextReview")]
     pub next_review: String,
+    #[serde(rename = "createdAt", default = "default_timestamp")]
+    pub created_at: String,
+    #[serde(rename = "firestoreId")]
+    pub firestore_id: Option<String>,
+    #[serde(rename = "imageUrl")]
+    pub image_url: Option<String>,
 }
 
 impl Identifiable for SchoolFlashcard {
@@ -99,7 +112,18 @@ impl Identifiable for SchoolFlashcard {
     fn set_id(&mut self, id: String) { self.id = id; }
 }
 
-fn default_ease() -> serde_json::Value { serde_json::Value::String("2.5".to_string()) }
+fn default_ease() -> String { "2.5".to_string() }
+fn default_timestamp() -> String { chrono::Utc::now().to_rfc3339() }
+
+fn deserialize_string_flexible<'de, D>(deserializer: D) -> Result<String, D::Error>
+where D: Deserializer<'de> {
+    let v: serde_json::Value = Deserialize::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        serde_json::Value::String(s) => Ok(s),
+        _ => Ok("2.5".to_string()),
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SchoolGrade {
@@ -140,6 +164,14 @@ pub struct SwimSession {
     pub heart_rate_avg: Option<i32>,
     #[serde(rename = "heartRateMax")]
     pub heart_rate_max: Option<i32>,
+    #[serde(rename = "effortLevel")]
+    pub effort_level: i32,
+    #[serde(rename = "poolLength")]
+    pub pool_length: f64,
+    pub sets: String, // JSON string
+    #[serde(rename = "caloriesBurned")]
+    pub calories_burned: Option<f64>,
+    pub location: Option<String>,
 }
 
 impl Identifiable for SwimSession {
@@ -182,44 +214,6 @@ pub struct QualifyingTime {
 }
 
 impl Identifiable for QualifyingTime {
-    fn get_id(&self) -> &str { &self.id }
-    fn set_id(&mut self, id: String) { self.id = id; }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum SwimGoalType {
-    TimeImprovement,
-    Distance,
-    Consistency,
-    Technique,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SwimGoal {
-    #[serde(deserialize_with = "deserialize_id")]
-    pub id: String,
-    #[serde(rename = "firestoreId")]
-    pub firestore_id: Option<String>,
-    #[serde(rename = "userId")]
-    pub user_id: String,
-    #[serde(rename = "goalType")]
-    pub goal_type: SwimGoalType,
-    #[serde(rename = "targetDescription")]
-    pub target_description: String,
-    #[serde(rename = "currentValue")]
-    pub current_value: f64,
-    #[serde(rename = "targetValue")]
-    pub target_value: f64,
-    #[serde(with = "chrono::serde::ts_seconds_option")]
-    #[serde(rename = "targetDate")]
-    pub target_date: Option<DateTime<Utc>>,
-    #[serde(rename = "isAchieved", with = "bool_as_int")]
-    pub is_achieved: bool,
-    pub subject: Option<String>,
-}
-
-impl Identifiable for SwimGoal {
     fn get_id(&self) -> &str { &self.id }
     fn set_id(&mut self, id: String) { self.id = id; }
 }
