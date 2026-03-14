@@ -169,9 +169,9 @@ async fn nuke_database(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn refresh_data_command(state: State<'_, AppState>) -> Result<(), String> {
+async fn refresh_data_command(app_handle: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let trailbase = state.trailbase_service.lock().await;
-    trailbase.refresh_data().await.map_err(|e| e.to_string())
+    trailbase.refresh_data(&app_handle).await.map_err(|e| e.to_string())
 }
 
 use std::sync::atomic::Ordering;

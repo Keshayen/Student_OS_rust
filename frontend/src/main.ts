@@ -31,48 +31,82 @@ const state: AppState = {
     searchQuery: ''
 };
 
+// Utils: Toast System
+function showToast(message: string, type: 'success' | 'error' | 'info' = 'info') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  const bg = type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 
+             type === 'error' ? 'bg-red-500/10 border-red-500/20 text-red-400' : 
+             'bg-blue-500/10 border-blue-500/20 text-blue-400';
+  
+  toast.className = `${bg} border backdrop-blur-md px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 transition-all duration-300 translate-x-[-20px] opacity-0 pointer-events-auto cursor-pointer`;
+  toast.innerHTML = `
+    <div class="w-2 h-2 rounded-full ${type === 'success' ? 'bg-emerald-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500'}"></div>
+    <span class="text-sm font-bold">${message}</span>
+  `;
+
+  container.appendChild(toast);
+  
+  // Trigger animation
+  setTimeout(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(0)';
+  }, 10);
+
+  const remove = () => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(10px)';
+    setTimeout(() => toast.remove(), 300);
+  };
+
+  toast.onclick = remove;
+  setTimeout(remove, 4000);
+}
+
 async function init() {
   const app = document.querySelector<HTMLDivElement>('#app')
   if (!app) return;
 
   // Initial UI Setup
   app.innerHTML = `
-    <div class="min-h-screen bg-slate-900 text-slate-200 font-sans pb-24">
+    <div class="min-h-screen bg-slate-900 text-slate-200 font-sans pb-28 md:pb-24">
       <!-- Sticky Header -->
-      <header class="sticky top-0 z-10 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 p-4">
+      <header class="sticky top-0 z-20 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 p-3 md:p-4 shadow-xl">
         <div class="max-w-4xl mx-auto">
-          <div class="flex justify-between items-center mb-4">
-            <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-              Student OS
+          <div class="flex justify-between items-center mb-3 md:mb-4">
+            <h1 class="text-xl md:text-2xl font-black bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent tracking-tight">
+              STUDENT OS
             </h1>
-            <div class="flex items-center gap-3">
-              <button id="refresh-btn" class="p-2 text-slate-500 hover:text-blue-400 transition-colors" title="Sync Data">
+            <div class="flex items-center gap-2 md:gap-3">
+              <button id="refresh-btn" class="p-2 text-slate-500 hover:text-blue-400 transition-colors bg-slate-800/50 rounded-lg md:bg-transparent" title="Sync Data">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
               </button>
-              <div id="connection-status" class="px-3 py-1 rounded-full text-[10px] font-black uppercase border border-slate-800 bg-slate-800/50 text-slate-500">
+              <div id="connection-status" class="px-2.5 py-1 rounded-lg text-[9px] md:text-[10px] font-black uppercase border border-slate-700 bg-slate-800/50 text-slate-500">
                 Checking...
               </div>
             </div>
           </div>
           <div class="relative group">
             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500 group-focus-within:text-blue-400 transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             </div>
             <input 
               type="text" 
               id="search-input" 
-              placeholder="Search your life..." 
-              class="w-full bg-slate-800/50 border border-slate-700 rounded-xl py-2 pl-10 pr-4 focus:outline-none focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm"
+              placeholder="Search everything..." 
+              class="w-full bg-slate-800/80 border border-slate-700/50 rounded-xl py-2 md:py-2.5 pl-10 pr-4 focus:outline-none focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10 transition-all text-sm md:text-base placeholder:text-slate-600 shadow-inner"
             >
           </div>
         </div>
       </header>
 
       <!-- Main Content -->
-      <main class="max-w-4xl mx-auto p-4 mt-4">
-        <div id="data-list" class="space-y-4">
+      <main class="max-w-4xl mx-auto p-3 md:p-6">
+        <div id="data-list" class="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
            <!-- Loading skeleton -->
-           <div class="animate-pulse space-y-4">
+           <div class="animate-pulse space-y-4 col-span-full">
               <div class="h-24 bg-slate-800/30 rounded-2xl"></div>
               <div class="h-24 bg-slate-800/30 rounded-2xl"></div>
               <div class="h-24 bg-slate-800/30 rounded-2xl"></div>
@@ -80,16 +114,19 @@ async function init() {
         </div>
       </main>
 
+      <!-- Toast Container -->
+      <div id="toast-container" class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 md:left-6 md:translate-x-0 z-50 flex flex-col items-center md:items-start gap-2 pointer-events-none w-full max-w-[90vw] md:max-w-md"></div>
+
       <!-- FAB -->
-      <button id="add-btn" class="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-500 text-white rounded-full shadow-2xl shadow-blue-500/20 flex items-center justify-center transition-all hover:scale-110 active:scale-95 z-20">
-        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+      <button id="add-btn" class="fixed bottom-6 right-6 w-16 h-16 md:w-14 md:h-14 bg-blue-600 hover:bg-blue-500 text-white rounded-full shadow-2xl shadow-blue-600/40 flex items-center justify-center transition-all hover:scale-110 active:scale-90 z-30">
+        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" md:width="28" md:height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
       </button>
 
       <!-- Modal Container -->
-      <div id="modal-overlay" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-30 hidden items-center justify-center p-4">
-        <div class="bg-slate-900 border border-slate-800 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-          <div class="p-6 border-b border-slate-800 flex justify-between items-center">
-            <h2 class="text-xl font-bold">New Entry</h2>
+      <div id="modal-overlay" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 hidden items-center justify-center p-0 md:p-4">
+        <div class="bg-slate-900 border-none md:border md:border-slate-800 w-full md:max-w-lg h-full md:h-auto md:rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+          <div class="p-5 md:p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
+            <h2 class="text-xl font-black uppercase tracking-tight text-slate-100">New Entry</h2>
             <button id="close-modal" class="text-slate-500 hover:text-white p-2">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
@@ -118,9 +155,9 @@ async function init() {
               <!-- JS injected fields -->
             </div>
           </div>
-          <div class="p-6 bg-slate-800/30 border-t border-slate-800 flex gap-3">
-            <button id="cancel-modal" class="flex-1 px-4 py-2 text-sm font-bold text-slate-400 hover:text-white transition-colors">Cancel</button>
-            <button id="save-btn" class="flex-[2] bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-4 py-2 text-sm font-bold shadow-lg shadow-blue-500/20 transition-all">Create Entry</button>
+          <div class="p-6 bg-slate-900 border-t border-slate-800 flex gap-3 mt-auto md:mt-0 pb-10 md:pb-6">
+            <button id="cancel-modal" class="flex-1 px-4 py-3 md:py-2 text-sm font-bold text-slate-400 hover:text-white transition-colors bg-slate-800 md:bg-transparent rounded-xl">Cancel</button>
+            <button id="save-btn" class="flex-[2] bg-blue-600 hover:bg-blue-500 text-white rounded-xl px-4 py-3 md:py-2 text-sm font-black uppercase tracking-wide shadow-lg shadow-blue-600/30 transition-all">Create Entry</button>
           </div>
         </div>
       </div>
@@ -181,12 +218,12 @@ async function init() {
     const items: { html: string, weight: number, title: string, content: string }[] = [];
 
     const getActionBtns = (id: string, col: string) => `
-        <div class="absolute bottom-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-          <button class="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 hover:text-blue-400 hover:border-blue-500/50 hover:bg-slate-800 transition-all shadow-lg" data-action="edit" data-id="${id}" data-col="${col}" title="Edit">
-            <svg class="pointer-events-none" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>
+        <div class="absolute top-3 right-3 flex gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all z-10">
+          <button class="p-2 rounded-xl bg-slate-900/90 border border-slate-700/50 text-slate-400 hover:text-blue-400 hover:border-blue-500/50 transition-all shadow-md active:scale-90" data-action="edit" data-id="${id}" data-col="${col}" title="Edit">
+            <svg class="pointer-events-none" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>
           </button>
-          <button class="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 hover:text-red-400 hover:border-red-500/50 hover:bg-slate-800 transition-all shadow-lg" data-action="delete" data-id="${id}" data-col="${col}" title="Delete">
-            <svg class="pointer-events-none" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          <button class="p-2 rounded-xl bg-slate-900/90 border border-slate-700/50 text-slate-400 hover:text-red-400 hover:border-red-500/50 transition-all shadow-md active:scale-90" data-action="delete" data-id="${id}" data-col="${col}" title="Delete">
+            <svg class="pointer-events-none" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
           </button>
         </div>
     `;
@@ -209,7 +246,7 @@ async function init() {
               ${getActionBtns(n.id, 'school_notes')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-blue-400">Note • ${n.subject}</span>
-                <span class="text-[10px] text-slate-500 pr-14">${new Date(n.createdAt).toLocaleDateString()}</span>
+                <span class="text-[10px] text-slate-500 pr-20 md:pr-14">${new Date(n.createdAt).toLocaleDateString()}</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100 group-hover:text-blue-400 transition-colors">${n.title}</h3>
               <p class="text-sm text-slate-400 line-clamp-3 mt-2 font-serif">${n.content}</p>
@@ -244,9 +281,9 @@ async function init() {
                ${isHabit ? `<div class="absolute top-0 right-0 px-2 py-1 bg-emerald-500 text-[8px] font-black text-slate-900 uppercase">Habit</div>` : ''}
                <div class="flex justify-between items-start mb-2">
                  <span class="text-[10px] uppercase tracking-widest font-black ${isHabit ? 'text-emerald-400' : 'text-purple-400'}">
-                   ${isHabit ? `🔥 ${t.streak ?? 0} Day Streak` : (t.schoolTaskType || 'School Task')}
+                   ${isHabit ? `🔥 ${t.streak ?? 0} Streak` : (t.schoolTaskType || 'Task')}
                  </span>
-                 <span class="text-[10px] text-slate-500 ${isHabit ? 'pr-14' : 'pr-0'}">${t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Created ' + new Date(t.createdDate).toLocaleDateString()}</span>
+                 <span class="text-[10px] text-slate-500 ${isHabit ? 'pr-20 md:pr-14' : 'pr-0'}">${t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Created ' + new Date(t.createdDate).toLocaleDateString()}</span>
                </div>
                <div class="flex items-center gap-3">
                  <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isCompleted ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-500 text-transparent group-hover:border-blue-400 group-hover:text-blue-400/30'}">
@@ -300,7 +337,7 @@ async function init() {
               ${getActionBtns(s.id, 'swim_sessions')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-cyan-400">Swim Session</span>
-                <span class="text-[10px] text-slate-500 pr-14">${new Date(s.date).toLocaleDateString()}</span>
+                <span class="text-[10px] text-slate-500 pr-20 md:pr-14">${new Date(s.date).toLocaleDateString()}</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100">${s.distance}m ${s.stroke}</h3>
               <div class="flex gap-4 mt-3">
@@ -331,7 +368,7 @@ async function init() {
               ${getActionBtns(g.id, 'swim_galas')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-sky-400">Swim Gala</span>
-                <span class="text-[10px] text-slate-500 pr-14">${new Date(g.date).toLocaleDateString()}</span>
+                <span class="text-[10px] text-slate-500 pr-20 md:pr-14">${new Date(g.date).toLocaleDateString()}</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100">${g.name}</h3>
               <div class="flex items-center gap-2 mt-2 text-slate-400 pr-16">
@@ -359,7 +396,7 @@ async function init() {
               ${q.isAchieved ? `<div class="absolute top-0 right-0 px-2 py-1 bg-indigo-500 text-[8px] font-black text-slate-900 uppercase">Achieved</div>` : ''}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-indigo-400">Qualifying Time</span>
-                <span class="text-[10px] text-slate-500 uppercase font-black pr-14">${q.course}</span>
+                <span class="text-[10px] text-slate-500 uppercase font-black pr-20 md:pr-14">${q.course}</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100">${q.eventName}</h3>
               <p class="text-sm font-black text-indigo-400 mt-1 uppercase tracking-tighter">Target: ${timeStr}</p>
@@ -381,7 +418,7 @@ async function init() {
               ${getActionBtns(f.id, 'flashcards')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-violet-400">Flashcard • ${f.subject}</span>
-                <span class="text-[10px] text-slate-500 pr-14">Interval: ${f.srs_interval}d</span>
+                <span class="text-[10px] text-slate-500 pr-20 md:pr-14">Interval: ${f.srs_interval}d</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100 italic">"${f.question}"</h3>
               <div class="mt-4 p-3 pr-16 bg-violet-500/10 border border-violet-500/20 rounded-xl text-sm text-slate-300 blur-sm hover:blur-none transition-all cursor-help">
@@ -664,18 +701,20 @@ async function init() {
 
   const handleSave = async () => {
     const type = entryTypeSelect.value;
-    const title = (document.getElementById('entry-title') as HTMLInputElement).value;
+    const title = (document.getElementById('entry-title') as HTMLInputElement).value.trim();
     
-    // Validation
-    if (type !== 'swim_sessions' && type !== 'flashcards' && !title) return alert("Please enter a title");
+    // Global Validation
+    if (type !== 'swim_sessions' && type !== 'flashcards' && !title) {
+        return showToast("Please enter a title", 'error');
+    }
 
     const userId = "LRA8iDK1iBUKGCdVIOff7CjVhxT2";
     const collection = type === 'habits' ? 'tasks' : type;
     
     if (type === 'flashcards') {
-        const q = (document.getElementById('entry-question') as HTMLTextAreaElement).value;
-        const a = (document.getElementById('entry-answer') as HTMLTextAreaElement).value;
-        if (!q || !a) return alert("Flashcards require both a question and an answer.");
+        const q = (document.getElementById('entry-question') as HTMLTextAreaElement).value.trim();
+        const a = (document.getElementById('entry-answer') as HTMLTextAreaElement).value.trim();
+        if (!q || !a) return showToast("Flashcards require both a question and an answer.", 'error');
     }
     
 
@@ -697,20 +736,28 @@ async function init() {
     try {
         if (type === 'school_notes') {
             record.subject = (document.getElementById('entry-subject') as HTMLSelectElement).value;
-            record.content = (document.getElementById('entry-content') as HTMLTextAreaElement).value;
+            record.content = (document.getElementById('entry-content') as HTMLTextAreaElement).value.trim();
             record.createdAt = record.createdAt || new Date().toISOString();
         } else if (type === 'school_grades') {
+            const score = parseFloat((document.getElementById('entry-score') as HTMLInputElement).value);
+            const total = parseFloat((document.getElementById('entry-total') as HTMLInputElement).value);
+            if (isNaN(score) || isNaN(total)) return showToast("Please enter a valid score and total.", 'error');
+            if (total === 0) return showToast("Total cannot be zero.", 'error');
+
             record.subject = (document.getElementById('entry-subject') as HTMLSelectElement).value;
-            record.score = parseFloat((document.getElementById('entry-score') as HTMLInputElement).value) || 0;
-            record.total = parseFloat((document.getElementById('entry-total') as HTMLInputElement).value) || 100;
+            record.score = score;
+            record.total = total;
             record.cycle = (document.getElementById('entry-cycle') as HTMLSelectElement).value;
             record.category = (document.getElementById('entry-category') as HTMLSelectElement).value;
             record.date = record.date || new Date().toISOString();
             record.schoolYear = record.schoolYear || 2026;
         } else if (type === 'tasks') {
+            const dueDate = (document.getElementById('entry-due-date') as HTMLInputElement).value;
+            if (!dueDate && !baseRecord) return showToast("Please select a due date.", 'error');
+
             record.taskType = 'school';
             record.subject = (document.getElementById('entry-subject') as HTMLSelectElement).value;
-            record.dueDate = (document.getElementById('entry-due-date') as HTMLInputElement).value || record.dueDate || new Date().toISOString();
+            record.dueDate = dueDate ? dueDate + "T00:00:00.000" : record.dueDate;
             record.schoolTaskType = (document.getElementById('entry-task-type') as HTMLSelectElement).value;
             if (!baseRecord) {
                 record.isCompleted = false;
@@ -727,14 +774,18 @@ async function init() {
                 record.reminderEnabled = false;
             }
         } else if (type === 'swim_sessions') {
+            const dist = parseFloat((document.getElementById('entry-distance') as HTMLInputElement).value);
+            const dur = parseInt((document.getElementById('entry-duration') as HTMLInputElement).value);
+            if (dist <= 0 || dur <= 0) return showToast("Distance and duration must be positive", 'error');
+
             const dateVal = (document.getElementById('entry-date') as HTMLInputElement).value;
             record.date = dateVal.includes('T') ? dateVal : dateVal + "T12:00:00.000000";
-            record.distance = parseFloat((document.getElementById('entry-distance') as HTMLInputElement).value) || 0;
-            record.duration = parseInt((document.getElementById('entry-duration') as HTMLInputElement).value) || 0;
+            record.distance = dist;
+            record.duration = dur;
             record.stroke = (document.getElementById('entry-stroke') as HTMLSelectElement).value;
             record.effortLevel = parseInt((document.getElementById('entry-effort') as HTMLInputElement).value) || 5;
             record.poolLength = parseFloat((document.getElementById('entry-pool-length') as HTMLSelectElement).value) || 25;
-            record.notes = (document.getElementById('entry-notes') as HTMLTextAreaElement).value || "";
+            record.notes = (document.getElementById('entry-notes') as HTMLTextAreaElement).value.trim();
             record.sets = record.sets || "[]";
             record.workoutEffect = record.workoutEffect || "Training";
             record.heartRateAvg = parseInt((document.getElementById('entry-avg-heart-rate') as HTMLInputElement).value) || record.heartRateAvg || 0;
@@ -742,12 +793,15 @@ async function init() {
         } else if (type === 'swim_galas') {
             const dateVal = (document.getElementById('entry-date') as HTMLInputElement).value;
             record.date = dateVal.includes('T') ? dateVal : dateVal + "T12:00:00.000000";
-            record.location = (document.getElementById('entry-location') as HTMLInputElement).value || "Unknown";
+            record.location = (document.getElementById('entry-location') as HTMLInputElement).value.trim() || "Unknown";
             record.course = (document.getElementById('entry-course') as HTMLSelectElement).value;
             record.events = record.events || "[]";
         } else if (type === 'qualifying_times') {
-            record.eventName = (document.getElementById('entry-event-name') as HTMLInputElement).value || title;
-            record.targetTime = Math.floor(parseFloat((document.getElementById('entry-target-time') as HTMLInputElement).value) * 1000) || 0;
+            const target = parseFloat((document.getElementById('entry-target-time') as HTMLInputElement).value);
+            if (target <= 0) return showToast("Target time must be positive", 'error');
+
+            record.eventName = (document.getElementById('entry-event-name') as HTMLInputElement).value.trim() || title;
+            record.targetTime = Math.floor(target * 1000);
             record.course = (document.getElementById('entry-course') as HTMLSelectElement).value;
             record.isAchieved = record.isAchieved || false;
         } else if (type === 'flashcards') {
@@ -777,8 +831,10 @@ async function init() {
         
         if (editingRecordId) {
             await Api.updateRecord(collection, record);
+            showToast("Entry updated successfully", 'success');
         } else {
             await Api.createRecord(collection, record);
+            showToast("Entry created successfully", 'success');
         }
         
         modalOverlay.classList.add('hidden');
@@ -790,7 +846,7 @@ async function init() {
         
         await fetchData();
     } catch (e) {
-        alert("Save failed: " + e);
+        showToast("Save failed: " + e, 'error');
     } finally {
         saveBtn.disabled = false;
         saveBtn.innerText = editingRecordId ? "Update Entry" : "Create Entry";
@@ -936,7 +992,7 @@ async function init() {
             await Api.updateRecord('tasks', task);
         } catch (error) {
             console.error("Failed to toggle task", error);
-            alert("Habit sync error: " + error);
+            showToast("Habit sync error: " + error, 'error');
             // Revert changes on failure by refetching
             await fetchData();
         }
@@ -996,7 +1052,7 @@ async function init() {
         await fetchData();
     } catch (err) {
         console.error("[UI] Delete failed:", err);
-        alert("Failed to delete record: " + err);
+        showToast("Failed to delete record: " + err, 'error');
     } finally {
         confirmDeleteBtn.disabled = false;
         confirmDeleteBtn.innerText = "Delete Forever";
@@ -1005,9 +1061,15 @@ async function init() {
 
   refreshBtn.onclick = async () => {
     refreshBtn.classList.add('animate-spin');
-    await Api.refreshData();
-    await fetchData();
-    refreshBtn.classList.remove('animate-spin');
+    try {
+        await Api.refreshData();
+        await fetchData();
+        showToast("Cloud sync complete", 'success');
+    } catch (e) {
+        showToast("Sync failed: " + e, 'error');
+    } finally {
+        refreshBtn.classList.remove('animate-spin');
+    }
   };
 
   // -- Connection Status --
@@ -1021,7 +1083,17 @@ async function init() {
 
   const isOffline = await Api.getConnectionStatus();
   updateConnection(isOffline);
-  Api.onConnectionChange(updateConnection);
+  Api.onConnectionChange((isOffline) => {
+    updateConnection(isOffline); 
+    if (!isOffline) showToast("System Online", 'success');
+    else showToast("System Offline", 'info');
+  });
+
+  Api.onSyncStatusChange((status) => {
+    if (status === 'complete') showToast("Background sync complete", 'success');
+    else if (status === 'error') showToast("Background sync failed", 'error');
+    else if (status === 'syncing') console.log("[Sync] Background sync in progress...");
+  });
 
   // Initial Fetch
   await fetchData();

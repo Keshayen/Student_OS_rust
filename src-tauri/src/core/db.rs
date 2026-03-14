@@ -102,8 +102,10 @@ impl TrailbaseService {
                         let _ = handle.emit("connection-status", false); 
                         
                         // Initial sync upon reconnection
-                        Self::flush_sync_queue(&client_clone, &cache_clone, &storage_path_clone).await;
-                        Self::sync_all_remote(&client_clone, &cache_clone, &storage_path_clone, &user_id_clone).await;
+                        let _ = handle.emit("sync-status", "syncing");
+                        Self::flush_sync_queue(&client_clone, &cache_clone, &storage_path_clone, &handle).await;
+                        Self::sync_all_remote(&client_clone, &cache_clone, &storage_path_clone, &user_id_clone, &handle).await;
+                        let _ = handle.emit("sync-status", "idle");
                     }
                 } else {
                     // Check if we are still online
@@ -119,7 +121,7 @@ impl TrailbaseService {
                         let _ = handle.emit("connection-status", true);
                     } else {
                         // Still online, try flushing anything that might have been queued during momentary blips
-                        Self::flush_sync_queue(&client_clone, &cache_clone, &storage_path_clone).await;
+                        Self::flush_sync_queue(&client_clone, &cache_clone, &storage_path_clone, &handle).await;
                     }
                 }
 
@@ -128,7 +130,7 @@ impl TrailbaseService {
         });
     }
 
-    async fn flush_sync_queue(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf) {
+    async fn flush_sync_queue(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf, handle: &AppHandle) {
         let ops = {
             let mut data = cache.lock().await;
             if data.pending_sync.is_empty() { return; }
@@ -137,8 +139,7 @@ impl TrailbaseService {
             ops
         };
 
-        println!("[Sync] Flushing {} pending changes...", ops.len());
-
+        let has_ops = !ops.is_empty();
         let mut failed_ops = Vec::new();
         for op in ops {
             let res = match &op {
@@ -164,11 +165,16 @@ impl TrailbaseService {
                 if err_msg.contains("HttpStatus(400)") {
                     println!("[Sync] Flush failed with 400 Bad Request. Op: {:?}, Error: {:#?}", op, e);
                     println!("[Sync] Dropping corrupt operation.");
+                    let _ = handle.emit("sync-status", "error");
                 } else {
                     println!("[Sync] Flush failed for op, re-queuing: {:?}", e);
                     failed_ops.push(op);
                 }
             }
+        }
+        
+        if has_ops && failed_ops.is_empty() {
+             let _ = handle.emit("sync-status", "complete");
         }
         
         let mut data = cache.lock().await;
@@ -183,7 +189,7 @@ impl TrailbaseService {
         }
     }
 
-    async fn sync_all_remote(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf, user_id: &str) {
+    async fn sync_all_remote(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf, user_id: &str, _handle: &AppHandle) {
         let tasks = Self::fetch_remote::<Task>(client, "tasks", user_id).await;
         let notes = Self::fetch_remote::<SchoolNote>(client, "school_notes", user_id).await;
         let grades = Self::fetch_remote::<SchoolGrade>(client, "school_grades", user_id).await;
@@ -454,11 +460,11 @@ impl TrailbaseService {
         Ok(())
     }
 
-    pub async fn refresh_data(&self) -> Result<()> {
+    pub async fn refresh_data(&self, handle: &AppHandle) -> Result<()> {
         if self.is_offline.load(Ordering::Relaxed) {
             return Err(anyhow!("Cannot refresh while offline"));
         }
-        Self::sync_all_remote(&self.client, &self.cache, &self.storage_path, &self.user_id).await;
+        Self::sync_all_remote(&self.client, &self.cache, &self.storage_path, &self.user_id, handle).await;
         Ok(())
     }
 }

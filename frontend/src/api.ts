@@ -145,5 +145,9 @@ export const Api = {
 
     onConnectionChange(callback: (isOffline: boolean) => void) {
         return listen<boolean>('connection-status', (event) => callback(event.payload));
+    },
+
+    onSyncStatusChange(callback: (status: string) => void) {
+        return listen<string>('sync-status', (event) => callback(event.payload));
     }
 };
