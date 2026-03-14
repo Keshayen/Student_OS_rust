@@ -120,6 +120,13 @@ export const Api = {
         });
     },
 
+    async updateRecord(collection: string, record: any): Promise<void> {
+        return await invoke("update_record_command", {
+            collection,
+            recordJson: JSON.stringify(record)
+        });
+    },
+
     async deleteRecord(collection: string, id: string): Promise<void> {
         return await invoke("delete_record_command", { collection, recordId: id });
     },

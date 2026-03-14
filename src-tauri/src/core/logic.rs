@@ -63,3 +63,65 @@ impl HabitService {
         completed_dates.len() as i32
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_srs_process_review() {
+        let mut card = SchoolFlashcard {
+            id: "test1".to_string(),
+            user_id: "user1".to_string(),
+            subject: "Math".to_string(),
+            note_id: "note1".to_string(),
+            question: "1+1?".to_string(),
+            answer: "2".to_string(),
+            interval: 1,
+            ease_factor: serde_json::Value::String("2.5".to_string()),
+            repetitions: 0,
+            next_review: "".to_string(),
+        };
+
+        // Review 1: Good
+        card = SpacedRepetitionService::process_review(&card, ReviewQuality::Good);
+        assert_eq!(card.repetitions, 1);
+        assert_eq!(card.interval, 1);
+        let ease = card.ease_factor.as_str().unwrap().parse::<f64>().unwrap();
+        assert!(ease.abs() - 2.5 < 0.01); // remains 2.5 on 'Good'
+
+        // Review 2: Good
+        card = SpacedRepetitionService::process_review(&card, ReviewQuality::Good);
+        assert_eq!(card.repetitions, 2);
+        assert_eq!(card.interval, 6);
+
+        // Review 3: Easy (Boost ease)
+        card = SpacedRepetitionService::process_review(&card, ReviewQuality::Easy);
+        assert_eq!(card.repetitions, 3);
+        let ease = card.ease_factor.as_str().unwrap().parse::<f64>().unwrap();
+        assert!(ease > 2.5); // Ease boosted
+    }
+
+    #[test]
+    fn test_srs_again_resets_interval() {
+        let card = SchoolFlashcard {
+            id: "test2".to_string(),
+            user_id: "user1".to_string(),
+            subject: "Bio".to_string(),
+            note_id: "note1".to_string(),
+            question: "DNA?".to_string(),
+            answer: "Deoxyribo...".to_string(),
+            interval: 14,
+            ease_factor: serde_json::Value::String("2.6".to_string()),
+            repetitions: 4,
+            next_review: "".to_string(),
+        };
+
+        let new_card = SpacedRepetitionService::process_review(&card, ReviewQuality::Again);
+        assert_eq!(new_card.repetitions, 0); // Repetitions reset
+        assert_eq!(new_card.interval, 1); // Interval resets
+        
+        let new_ease = new_card.ease_factor.as_str().unwrap().parse::<f64>().unwrap();
+        assert!(new_ease < 2.6); // Ease drops considerably
+    }
+}

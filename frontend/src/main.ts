@@ -126,25 +126,49 @@ async function init() {
     </div>
   `
 
-  const listEl = document.getElementById('data-list')!;
+  const listEl = document.getElementById('data-list') as HTMLElement;
   const searchInput = document.getElementById('search-input') as HTMLInputElement;
-  const statusEl = document.getElementById('connection-status')!;
-  const refreshBtn = document.getElementById('refresh-btn')!;
-  const addBtn = document.getElementById('add-btn')!;
-  const modalOverlay = document.getElementById('modal-overlay')!;
-  const closeModalBtn = document.getElementById('close-modal')!;
-  const cancelModalBtn = document.getElementById('cancel-modal')!;
-  const saveBtn = document.getElementById('save-btn')!;
+  const statusEl = document.getElementById('connection-status') as HTMLElement;
+  const refreshBtn = document.getElementById('refresh-btn') as HTMLButtonElement;
+  const addBtn = document.getElementById('add-btn') as HTMLButtonElement;
+  const modalOverlay = document.getElementById('modal-overlay') as HTMLElement;
+  const closeModalBtn = document.getElementById('close-modal') as HTMLButtonElement;
+  const cancelModalBtn = document.getElementById('cancel-modal') as HTMLButtonElement;
+  const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
   const entryTypeSelect = document.getElementById('entry-type') as HTMLSelectElement;
-  const dynamicFields = document.getElementById('dynamic-fields')!;
+  const dynamicFields = document.getElementById('dynamic-fields') as HTMLElement;
 
   // -- Render Logic --
+
+  let editingRecordId: string | null = null;
+  let editingCollection: string | null = null;
+
+  const getCollectionKey = (col: string) => {
+    if (col === 'tasks' || col === 'habits') return 'tasks';
+    if (col === 'school_notes') return 'notes';
+    if (col === 'school_grades') return 'grades';
+    if (col === 'swim_sessions') return 'swims';
+    if (col === 'swim_galas') return 'galas';
+    if (col === 'qualifying_times') return 'qts';
+    return 'flashcards';
+  };
 
   const render = () => {
     console.log("Rendering UI with query:", state.searchQuery);
     const query = state.searchQuery.toLowerCase();
     
     const items: { html: string, weight: number, title: string, content: string }[] = [];
+
+    const getActionBtns = (id: string, col: string) => `
+        <div class="absolute bottom-3 right-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <button class="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 hover:text-blue-400 hover:border-blue-500/50 hover:bg-slate-800 transition-all shadow-lg" data-action="edit" data-id="${id}" data-col="${col}" title="Edit">
+            <svg class="pointer-events-none" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>
+          </button>
+          <button class="p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 hover:text-red-400 hover:border-red-500/50 hover:bg-slate-800 transition-all shadow-lg" data-action="delete" data-id="${id}" data-col="${col}" title="Delete">
+            <svg class="pointer-events-none" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+          </button>
+        </div>
+    `;
 
     // Helper to check if item matches search
     const matches = (title: string, content: string = "") => {
@@ -160,10 +184,11 @@ async function init() {
           title: n.title,
           content: n.content,
           html: `
-            <div class="p-5 bg-blue-900/10 border border-blue-500/20 rounded-2xl group hover:border-blue-500/40 transition-all">
+            <div class="p-5 bg-blue-900/10 border border-blue-500/20 rounded-2xl group hover:border-blue-500/40 transition-all relative">
+              ${getActionBtns(n.id, 'school_notes')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-blue-400">Note • ${n.subject}</span>
-                <span class="text-[10px] text-slate-500">${new Date(n.createdAt).toLocaleDateString()}</span>
+                <span class="text-[10px] text-slate-500 pr-14">${new Date(n.createdAt).toLocaleDateString()}</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100 group-hover:text-blue-400 transition-colors">${n.title}</h3>
               <p class="text-sm text-slate-400 line-clamp-3 mt-2 font-serif">${n.content}</p>
@@ -193,16 +218,22 @@ async function init() {
           title: t.title,
           content: t.subject || "",
           html: `
-            <div class="p-5 bg-slate-800/40 border border-slate-700/50 rounded-2xl relative overflow-hidden group hover:border-slate-600 transition-all">
+            <div data-task-id="${t.id}" class="cursor-pointer p-5 bg-slate-800/40 border border-slate-700/50 rounded-2xl relative overflow-hidden group hover:border-slate-500 transition-all active:scale-[0.98]">
+               ${getActionBtns(t.id, t.taskType === 'task' ? 'habits' : 'tasks')}
                ${isHabit ? `<div class="absolute top-0 right-0 px-2 py-1 bg-emerald-500 text-[8px] font-black text-slate-900 uppercase">Habit</div>` : ''}
                <div class="flex justify-between items-start mb-2">
                  <span class="text-[10px] uppercase tracking-widest font-black ${isHabit ? 'text-emerald-400' : 'text-purple-400'}">
                    ${isHabit ? `🔥 ${t.streak ?? 0} Day Streak` : (t.schoolTaskType || 'School Task')}
                  </span>
-                 <span class="text-[10px] text-slate-500">${t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Created ' + new Date(t.createdDate).toLocaleDateString()}</span>
+                 <span class="text-[10px] text-slate-500 ${isHabit ? 'pr-14' : 'pr-0'}">${t.dueDate ? new Date(t.dueDate).toLocaleDateString() : 'Created ' + new Date(t.createdDate).toLocaleDateString()}</span>
                </div>
-               <h3 class="text-lg font-bold ${isCompleted ? 'text-slate-500 line-through' : 'text-slate-100'}">${t.title}</h3>
-               ${t.subject ? `<p class="text-xs text-slate-500 mt-2">${t.subject}</p>` : ''}
+               <div class="flex items-center gap-3">
+                 <div class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isCompleted ? 'bg-blue-500 border-blue-500 text-white' : 'border-slate-500 text-transparent group-hover:border-blue-400 group-hover:text-blue-400/30'}">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                 </div>
+                 <h3 class="text-lg font-bold ${isCompleted ? 'text-slate-500 line-through' : 'text-slate-100'}">${t.title}</h3>
+               </div>
+               ${t.subject ? `<p class="text-xs text-slate-500 mt-2 pl-8">${t.subject}</p>` : ''}
             </div>
           `
         });
@@ -217,14 +248,15 @@ async function init() {
           title: g.title,
           content: g.subject,
           html: `
-            <div class="p-5 bg-amber-900/10 border border-amber-500/20 rounded-2xl group hover:border-amber-500/40 transition-all">
+            <div class="p-5 bg-amber-900/10 border border-amber-500/20 rounded-2xl group hover:border-amber-500/40 transition-all relative">
+              ${getActionBtns(g.id, 'school_grades')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-amber-400">Grade • ${g.subject}</span>
                 <span class="text-[10px] text-slate-500">${g.cycle}</span>
               </div>
               <div class="flex justify-between items-center">
                  <h3 class="text-lg font-bold text-slate-100">${g.title}</h3>
-                 <div class="text-2xl font-black text-amber-500">${Math.round((g.score/g.total)*100)}%</div>
+                 <div class="text-2xl font-black text-amber-500 pr-16">${Math.round((g.score/g.total)*100)}%</div>
               </div>
               <div class="mt-2 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
                 <div class="bg-amber-500 h-full" style="width: ${(g.score/g.total)*100}%"></div>
@@ -243,10 +275,11 @@ async function init() {
           title: s.distance + "m " + s.stroke,
           content: s.notes,
           html: `
-            <div class="p-5 bg-cyan-900/10 border border-cyan-500/20 rounded-2xl group hover:border-cyan-500/40 transition-all">
+            <div class="p-5 bg-cyan-900/10 border border-cyan-500/20 rounded-2xl group hover:border-cyan-500/40 transition-all relative">
+              ${getActionBtns(s.id, 'swim_sessions')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-cyan-400">Swim Session</span>
-                <span class="text-[10px] text-slate-500">${new Date(s.date).toLocaleDateString()}</span>
+                <span class="text-[10px] text-slate-500 pr-14">${new Date(s.date).toLocaleDateString()}</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100">${s.distance}m ${s.stroke}</h3>
               <div class="flex gap-4 mt-3">
@@ -273,13 +306,14 @@ async function init() {
           title: g.name,
           content: g.location,
           html: `
-            <div class="p-5 bg-sky-900/10 border border-sky-500/20 rounded-2xl group hover:border-sky-500/40 transition-all">
+            <div class="p-5 bg-sky-900/10 border border-sky-500/20 rounded-2xl group hover:border-sky-500/40 transition-all relative">
+              ${getActionBtns(g.id, 'swim_galas')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-sky-400">Swim Gala</span>
-                <span class="text-[10px] text-slate-500">${new Date(g.date).toLocaleDateString()}</span>
+                <span class="text-[10px] text-slate-500 pr-14">${new Date(g.date).toLocaleDateString()}</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100">${g.name}</h3>
-              <div class="flex items-center gap-2 mt-2 text-slate-400">
+              <div class="flex items-center gap-2 mt-2 text-slate-400 pr-16">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-sky-500"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
                 <span class="text-xs font-bold">${g.location}</span>
                 <span class="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded uppercase font-black ml-auto">${g.course}</span>
@@ -300,10 +334,11 @@ async function init() {
           content: q.name,
           html: `
             <div class="p-5 bg-indigo-900/10 border border-indigo-500/20 rounded-2xl group hover:border-indigo-500/40 transition-all relative overflow-hidden">
+              ${getActionBtns(q.id, 'qualifying_times')}
               ${q.isAchieved ? `<div class="absolute top-0 right-0 px-2 py-1 bg-indigo-500 text-[8px] font-black text-slate-900 uppercase">Achieved</div>` : ''}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-indigo-400">Qualifying Time</span>
-                <span class="text-[10px] text-slate-500 uppercase font-black">${q.course}</span>
+                <span class="text-[10px] text-slate-500 uppercase font-black pr-14">${q.course}</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100">${q.eventName}</h3>
               <p class="text-sm font-black text-indigo-400 mt-1 uppercase tracking-tighter">Target: ${timeStr}</p>
@@ -321,13 +356,14 @@ async function init() {
           title: f.question,
           content: f.answer,
           html: `
-            <div class="p-5 bg-violet-900/10 border border-violet-500/20 rounded-2xl group hover:border-violet-500/40 transition-all">
+            <div class="p-5 bg-violet-900/10 border border-violet-500/20 rounded-2xl group hover:border-violet-500/40 transition-all relative">
+              ${getActionBtns(f.id, 'flashcards')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-violet-400">Flashcard • ${f.subject}</span>
-                <span class="text-[10px] text-slate-500">Interval: ${f.srs_interval}d</span>
+                <span class="text-[10px] text-slate-500 pr-14">Interval: ${f.srs_interval}d</span>
               </div>
               <h3 class="text-lg font-bold text-slate-100 italic">"${f.question}"</h3>
-              <div class="mt-4 p-3 bg-violet-500/10 border border-violet-500/20 rounded-xl text-sm text-slate-300 blur-sm hover:blur-none transition-all cursor-help">
+              <div class="mt-4 p-3 pr-16 bg-violet-500/10 border border-violet-500/20 rounded-xl text-sm text-slate-300 blur-sm hover:blur-none transition-all cursor-help">
                 <span class="text-[10px] block font-black text-violet-400 mb-1 uppercase tracking-tighter">Click to reveal answer</span>
                 ${f.answer}
               </div>
@@ -561,80 +597,104 @@ async function init() {
     if (type !== 'swim_sessions' && !title) return alert("Please enter a title");
 
     const userId = "LRA8iDK1iBUKGCdVIOff7CjVhxT2";
-    let record: any = { id: "", userId };
+    const collection = type === 'habits' ? 'tasks' : type;
+    
+
+
+    // Attempt to clone existing record if editing mode
+    let baseRecord: any;
+    if (editingRecordId && editingCollection) {
+        const listKey = getCollectionKey(editingCollection);
+        baseRecord = (state as any)[listKey]?.find((x: any) => x.id === editingRecordId);
+    }
+
+    let record: any = baseRecord ? { ...baseRecord } : { id: "", userId };
+    
     if (type !== 'swim_sessions') {
         record.title = title;
+        if (type === 'swim_galas' || type === 'qualifying_times') record.name = title;
     }
 
     try {
         if (type === 'school_notes') {
             record.subject = (document.getElementById('entry-subject') as HTMLSelectElement).value;
             record.content = (document.getElementById('entry-content') as HTMLTextAreaElement).value;
-            record.createdAt = new Date().toISOString();
+            record.createdAt = record.createdAt || new Date().toISOString();
         } else if (type === 'school_grades') {
             record.subject = (document.getElementById('entry-subject') as HTMLSelectElement).value;
             record.score = parseFloat((document.getElementById('entry-score') as HTMLInputElement).value) || 0;
             record.total = parseFloat((document.getElementById('entry-total') as HTMLInputElement).value) || 100;
             record.cycle = (document.getElementById('entry-cycle') as HTMLSelectElement).value;
             record.category = (document.getElementById('entry-category') as HTMLSelectElement).value;
-            record.date = new Date().toISOString();
-            record.schoolYear = 2026;
+            record.date = record.date || new Date().toISOString();
+            record.schoolYear = record.schoolYear || 2026;
         } else if (type === 'tasks') {
             record.taskType = 'school';
             record.subject = (document.getElementById('entry-subject') as HTMLSelectElement).value;
-            record.dueDate = (document.getElementById('entry-due-date') as HTMLInputElement).value || new Date().toISOString();
+            record.dueDate = (document.getElementById('entry-due-date') as HTMLInputElement).value || record.dueDate || new Date().toISOString();
             record.schoolTaskType = (document.getElementById('entry-task-type') as HTMLSelectElement).value;
-            record.isCompleted = false;
-            record.createdDate = new Date().toISOString();
-            record.reminderEnabled = false;
+            if (!baseRecord) {
+                record.isCompleted = false;
+                record.createdDate = new Date().toISOString();
+                record.reminderEnabled = false;
+            }
         } else if (type === 'habits') {
             record.taskType = 'task';
             record.frequency = (document.getElementById('entry-frequency') as HTMLSelectElement).value;
-            record.streak = 0;
-            record.isCompleted = false;
-            record.createdDate = new Date().toISOString();
-            record.reminderEnabled = false;
+            if (!baseRecord) {
+                record.streak = 0;
+                record.isCompleted = false;
+                record.createdDate = new Date().toISOString();
+                record.reminderEnabled = false;
+            }
         } else if (type === 'swim_sessions') {
-            record.date = (document.getElementById('entry-date') as HTMLInputElement).value + "T12:00:00.000000";
+            const dateVal = (document.getElementById('entry-date') as HTMLInputElement).value;
+            record.date = dateVal.includes('T') ? dateVal : dateVal + "T12:00:00.000000";
             record.distance = parseFloat((document.getElementById('entry-distance') as HTMLInputElement).value) || 0;
             record.duration = parseInt((document.getElementById('entry-duration') as HTMLInputElement).value) || 0;
             record.stroke = (document.getElementById('entry-stroke') as HTMLSelectElement).value;
             record.effortLevel = parseInt((document.getElementById('entry-effort') as HTMLInputElement).value) || 5;
             record.poolLength = parseFloat((document.getElementById('entry-pool-length') as HTMLSelectElement).value) || 25;
             record.notes = (document.getElementById('entry-notes') as HTMLTextAreaElement).value || "";
-            record.sets = "[]"; // Valid JSON string required by Rust
-            record.workoutEffect = "Training";
-            record.heartRateAvg = parseInt((document.getElementById('entry-avg-heart-rate') as HTMLInputElement).value) || 0;
-            record.heartRateMax = parseInt((document.getElementById('entry-max-heart-rate') as HTMLInputElement).value) || 0;
+            record.sets = record.sets || "[]";
+            record.workoutEffect = record.workoutEffect || "Training";
+            record.heartRateAvg = parseInt((document.getElementById('entry-avg-heart-rate') as HTMLInputElement).value) || record.heartRateAvg || 0;
+            record.heartRateMax = parseInt((document.getElementById('entry-max-heart-rate') as HTMLInputElement).value) || record.heartRateMax || 0;
         } else if (type === 'swim_galas') {
-            record.date = (document.getElementById('entry-date') as HTMLInputElement).value + "T12:00:00.000000";
+            const dateVal = (document.getElementById('entry-date') as HTMLInputElement).value;
+            record.date = dateVal.includes('T') ? dateVal : dateVal + "T12:00:00.000000";
             record.location = (document.getElementById('entry-location') as HTMLInputElement).value || "Unknown";
             record.course = (document.getElementById('entry-course') as HTMLSelectElement).value;
-            record.name = title;
-            record.events = "[]";
+            record.events = record.events || "[]";
         } else if (type === 'qualifying_times') {
             record.eventName = (document.getElementById('entry-event-name') as HTMLInputElement).value || title;
             record.targetTime = Math.floor(parseFloat((document.getElementById('entry-target-time') as HTMLInputElement).value) * 1000) || 0;
             record.course = (document.getElementById('entry-course') as HTMLSelectElement).value;
-            record.name = title;
-            record.isAchieved = false;
+            record.isAchieved = record.isAchieved || false;
         }
-
-        const collection = type === 'habits' ? 'tasks' : type;
         
         saveBtn.disabled = true;
-        saveBtn.innerText = "Saving...";
+        saveBtn.innerText = editingRecordId ? "Updating..." : "Saving...";
         
-        await Api.createRecord(collection, record);
+        if (editingRecordId) {
+            await Api.updateRecord(collection, record);
+        } else {
+            await Api.createRecord(collection, record);
+        }
         
         modalOverlay.classList.add('hidden');
         (document.getElementById('entry-title') as HTMLInputElement).value = '';
+        editingRecordId = null;
+        editingCollection = null;
+        document.querySelector('h2')!.innerText = "New Entry";
+        saveBtn.innerText = "Create Entry";
+        
         await fetchData();
     } catch (e) {
         alert("Save failed: " + e);
     } finally {
         saveBtn.disabled = false;
-        saveBtn.innerText = "Create Entry";
+        saveBtn.innerText = editingRecordId ? "Update Entry" : "Create Entry";
     }
   }
 
@@ -645,13 +705,157 @@ async function init() {
     render();
   };
 
+  listEl.addEventListener('click', async (e) => {
+    const target = e.target as HTMLElement;
+    
+    // Check if Edit/Delete action button clicked First
+    const actionBtn = target.closest('[data-action]');
+    if (actionBtn) {
+       e.stopPropagation();
+       const action = actionBtn.getAttribute('data-action');
+       const id = actionBtn.getAttribute('data-id');
+       const col = actionBtn.getAttribute('data-col');
+       
+       if (!id || !col) return;
+       
+       if (action === 'delete') {
+           if (confirm("Are you sure you want to delete this specific entry? This action cannot be undone.")) {
+               try {
+                   await Api.deleteRecord(col, id);
+                   await fetchData();
+               } catch (err) {
+                   alert("Failed to delete record: " + err);
+               }
+           }
+           return;
+       } else if (action === 'edit') {
+           editingRecordId = id;
+           editingCollection = col;
+           // Determine the corresponding UI type correctly
+           const isHabit = col === 'tasks' && state.tasks.find(t => t.id === id)?.taskType === 'task';
+           const typeStr = isHabit ? 'habits' : col;
+           
+           entryTypeSelect.value = typeStr;
+           updateModalFields();
+           
+           // Fetch full base record
+           const listKey = getCollectionKey(editingCollection);
+           
+           const item = (state as any)[listKey]?.find((x: any) => x.id === id);
+           if (!item) return;
+
+           // Helper utility safely inject value
+           const setVal = (elmId: string, val: any) => {
+               const el = document.getElementById(elmId);
+               if (el) (el as any).value = val;
+           }
+
+           document.querySelector('h2')!.innerText = "Edit Entry";
+           saveBtn.innerText = "Update Entry";
+           entryTypeSelect.disabled = true; // Prevent morphing object schemas
+           setVal('entry-title', item.title || item.name || item.eventName || "");
+           
+           if (typeStr === 'school_notes') {
+               setVal('entry-subject', item.subject);
+               setVal('entry-content', item.content);
+           } else if (typeStr === 'school_grades') {
+               setVal('entry-subject', item.subject);
+               setVal('entry-score', item.score);
+               setVal('entry-total', item.total);
+               setVal('entry-cycle', item.cycle);
+               setVal('entry-category', item.category);
+           } else if (typeStr === 'tasks') {
+               setVal('entry-subject', item.subject);
+               if (item.dueDate) setVal('entry-due-date', item.dueDate.split('T')[0]);
+               setVal('entry-task-type', item.schoolTaskType);
+           } else if (typeStr === 'habits') {
+               setVal('entry-frequency', item.frequency);
+           } else if (typeStr === 'swim_sessions') {
+               if (item.date) setVal('entry-date', item.date.split('T')[0]);
+               setVal('entry-distance', item.distance);
+               setVal('entry-stroke', item.stroke);
+               setVal('entry-duration', item.duration);
+               setVal('entry-pool-length', item.poolLength);
+               setVal('entry-avg-heart-rate', item.heartRateAvg);
+               setVal('entry-max-heart-rate', item.heartRateMax);
+               setVal('entry-effort', item.effortLevel);
+               setVal('entry-notes', item.notes);
+           } else if (typeStr === 'swim_galas') {
+               if (item.date) setVal('entry-date', item.date.split('T')[0]);
+               setVal('entry-location', item.location);
+               setVal('entry-course', item.course);
+           } else if (typeStr === 'qualifying_times') {
+               setVal('entry-event-name', item.eventName);
+               setVal('entry-target-time', parseFloat((item.targetTime / 1000).toFixed(2)));
+               setVal('entry-course', item.course);
+           }
+           
+           modalOverlay.classList.remove('hidden');
+           modalOverlay.classList.add('flex');
+           return;
+       }
+    }
+
+    // Toggle Task Complete Status Logic
+    const taskEl = target.closest('[data-task-id]');
+    if (taskEl) {
+      const taskId = taskEl.getAttribute('data-task-id');
+      const task = state.tasks.find(t => t.id === taskId);
+      if (task) {
+        if (task.taskType === 'task') {
+          let dates: string[] = [];
+          if (task.completedDates) {
+            try { 
+                const parsed = typeof task.completedDates === 'string' ? JSON.parse(task.completedDates) : task.completedDates;
+                if (Array.isArray(parsed)) dates = parsed;
+            } catch(err) {}
+          }
+          const today = new Date().toLocaleDateString('en-CA');
+          let isCompletedToday = dates.some(d => (typeof d === 'string' ? d : new Date(d).toISOString()).startsWith(today));
+          
+          if (isCompletedToday) {
+             dates = dates.filter(d => !(typeof d === 'string' ? d : new Date(d).toISOString()).startsWith(today));
+             task.streak = Math.max(0, (task.streak || 1) - 1);
+          } else {
+             dates.push(new Date().toISOString());
+             task.streak = (task.streak || 0) + 1;
+          }
+          task.completedDates = JSON.stringify(dates);
+        } else {
+           task.isCompleted = !task.isCompleted;
+        }
+        
+        // Optimistic UI update
+        render();
+        
+        try {
+            await Api.updateRecord('tasks', task);
+        } catch (error) {
+            console.error("Failed to toggle task", error);
+            alert("Habit sync error: " + error);
+            // Revert changes on failure by refetching
+            await fetchData();
+        }
+      }
+    }
+  });
+
   addBtn.onclick = () => {
+    editingRecordId = null;
+    editingCollection = null;
+    entryTypeSelect.disabled = false; // Re-enable for new entries
+    (document.getElementById('entry-title') as HTMLInputElement).value = '';
+    document.querySelector('h2')!.innerText = "New Entry";
+    saveBtn.innerText = "Create Entry";
+    
     modalOverlay.classList.remove('hidden');
     modalOverlay.classList.add('flex');
     updateModalFields();
   };
 
   const close = () => {
+    editingRecordId = null;
+    editingCollection = null;
     modalOverlay.classList.add('hidden');
     modalOverlay.classList.remove('flex');
   };

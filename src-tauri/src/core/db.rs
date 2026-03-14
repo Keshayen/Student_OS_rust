@@ -129,44 +129,81 @@ impl TrailbaseService {
     }
 
     async fn flush_sync_queue(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf) {
-        let mut data = cache.lock().await;
-        if data.pending_sync.is_empty() { return; }
+        let ops = {
+            let mut data = cache.lock().await;
+            if data.pending_sync.is_empty() { return; }
+            let ops = data.pending_sync.clone();
+            data.pending_sync.clear();
+            ops
+        };
 
-        println!("[Sync] Flushing {} pending changes...", data.pending_sync.len());
-        let ops = data.pending_sync.clone();
-        data.pending_sync.clear();
+        println!("[Sync] Flushing {} pending changes...", ops.len());
 
+        let mut failed_ops = Vec::new();
         for op in ops {
-            let res = match op {
-                SyncOp::Create { ref collection, ref data } => {
+            let res = match &op {
+                SyncOp::Create { collection, data } => {
                     let mut clean_data = data.clone();
                     if let Some(obj) = clean_data.as_object_mut() {
                         obj.remove("id");
                     }
                     client.records(collection).create(&clean_data).await.map(|_| ())
                 },
-                SyncOp::Update { ref collection, ref id, ref data } => client.records(collection).update(id, data).await.map(|_| ()),
-                SyncOp::Delete { ref collection, ref id } => client.records(collection).delete(id).await.map(|_| ()),
+                SyncOp::Update { collection, id, data } => {
+                    let mut clean_data = data.clone();
+                    if let Some(obj) = clean_data.as_object_mut() {
+                        obj.remove("id");
+                    }
+                    client.records(collection).update(id, &clean_data).await.map(|_| ())
+                },
+                SyncOp::Delete { collection, id } => client.records(collection).delete(id).await.map(|_| ()),
             };
             
             if let Err(e) = res {
-                println!("[Sync] Flush failed for op, re-queuing: {:?}", e);
+                let err_msg = format!("{:?}", e);
+                if err_msg.contains("HttpStatus(400)") {
+                    println!("[Sync] Flush failed with 400 Bad Request. Op: {:?}, Error: {:#?}", op, e);
+                    println!("[Sync] Dropping corrupt operation.");
+                } else {
+                    println!("[Sync] Flush failed for op, re-queuing: {:?}", e);
+                    failed_ops.push(op);
+                }
+            }
+        }
+        
+        let mut data = cache.lock().await;
+        if !failed_ops.is_empty() {
+            for op in failed_ops {
                 data.pending_sync.push(op);
             }
         }
-        let _ = fs::write(storage_path, serde_json::to_string(&*data).unwrap());
+        
+        if let Ok(json) = serde_json::to_string(&*data) {
+            let _ = fs::write(storage_path, json);
+        }
     }
 
     async fn sync_all_remote(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf, user_id: &str) {
+        let tasks = Self::fetch_remote::<Task>(client, "tasks", user_id).await;
+        let notes = Self::fetch_remote::<SchoolNote>(client, "school_notes", user_id).await;
+        let grades = Self::fetch_remote::<SchoolGrade>(client, "school_grades", user_id).await;
+        let swims = Self::fetch_remote::<SwimSession>(client, "swim_sessions", user_id).await;
+        let galas = Self::fetch_remote::<SwimGala>(client, "swim_galas", user_id).await;
+        let qts = Self::fetch_remote::<QualifyingTime>(client, "qualifying_times", user_id).await;
+        let flashcards = Self::fetch_remote::<SchoolFlashcard>(client, "flashcards", user_id).await;
+
         let mut data = cache.lock().await;
-        let _ = Self::fetch_remote::<Task>(client, "tasks", user_id).await.map(|items| data.tasks = items);
-        let _ = Self::fetch_remote::<SchoolNote>(client, "school_notes", user_id).await.map(|items| data.notes = items);
-        let _ = Self::fetch_remote::<SchoolGrade>(client, "school_grades", user_id).await.map(|items| data.grades = items);
-        let _ = Self::fetch_remote::<SwimSession>(client, "swim_sessions", user_id).await.map(|items| data.swims = items);
-        let _ = Self::fetch_remote::<SwimGala>(client, "swim_galas", user_id).await.map(|items| data.galas = items);
-        let _ = Self::fetch_remote::<QualifyingTime>(client, "qualifying_times", user_id).await.map(|items| data.qts = items);
-        let _ = Self::fetch_remote::<SchoolFlashcard>(client, "flashcards", user_id).await.map(|items| data.flashcards = items);
-        let _ = fs::write(storage_path, serde_json::to_string(&*data).unwrap());
+        if let Ok(items) = tasks { data.tasks = items; }
+        if let Ok(items) = notes { data.notes = items; }
+        if let Ok(items) = grades { data.grades = items; }
+        if let Ok(items) = swims { data.swims = items; }
+        if let Ok(items) = galas { data.galas = items; }
+        if let Ok(items) = qts { data.qts = items; }
+        if let Ok(items) = flashcards { data.flashcards = items; }
+        
+        if let Ok(json) = serde_json::to_string(&*data) {
+            let _ = fs::write(storage_path, json);
+        }
         println!("[Data] Remote sync complete.");
     }
 
@@ -288,7 +325,11 @@ impl TrailbaseService {
         let mut sync_needed = is_offline;
         
         if !is_offline {
-            if self.client.records(collection).update(record.get_id(), &serde_json::to_value(&record)?).await.is_err() {
+            let mut update_data = serde_json::to_value(&record)?;
+            if let Some(obj) = update_data.as_object_mut() {
+                obj.remove("id");
+            }
+            if self.client.records(collection).update(record.get_id(), &update_data).await.is_err() {
                 sync_needed = true;
             }
         }
@@ -316,7 +357,9 @@ impl TrailbaseService {
             _ => {},
         }
         
-        let _ = fs::write(&self.storage_path, serde_json::to_string(&*cache).unwrap());
+        if let Ok(json) = serde_json::to_string(&*cache) {
+            let _ = fs::write(&self.storage_path, json);
+        }
         Ok(record)
     }
 
@@ -353,14 +396,18 @@ impl TrailbaseService {
             "flashcards" => cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id), 
             _ => {},
         }
-        let _ = fs::write(&self.storage_path, serde_json::to_string(&*cache).unwrap());
+        if let Ok(json) = serde_json::to_string(&*cache) {
+            let _ = fs::write(&self.storage_path, json);
+        }
         Ok(())
     }
 
     pub async fn nuke_local_data(&mut self) -> Result<()> {
         let mut cache = self.cache.lock().await;
         *cache = AppData::default();
-        let _ = fs::write(&self.storage_path, serde_json::to_string(&*cache).unwrap());
+        if let Ok(json) = serde_json::to_string(&*cache) {
+            let _ = fs::write(&self.storage_path, json);
+        }
         Ok(())
     }
 

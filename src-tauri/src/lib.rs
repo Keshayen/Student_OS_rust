@@ -105,7 +105,10 @@ async fn update_record_command(state: State<'_, AppState>, collection: String, r
 
     match collection.as_str() {
         "tasks" => {
-            let record: Task = serde_json::from_value(record).map_err(|e: serde_json::Error| e.to_string())?;
+            let record: Task = serde_json::from_value(record.clone()).map_err(|e: serde_json::Error| {
+                eprintln!("[Deser Error] Failed to parse Task. Error: {}, Payload: {}", e, record);
+                e.to_string()
+            })?;
             let updated_record = trailbase.update_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
             serde_json::to_value(updated_record).map_err(|e: serde_json::Error| e.to_string())
         },
