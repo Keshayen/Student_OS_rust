@@ -394,45 +394,44 @@ impl TrailbaseService {
             });
         }
 
-        let mut deleted = false;
-        match effective_collection {
+        let deleted = match effective_collection {
             "tasks" => {
                 let initial_len = cache.tasks.len();
                 cache.tasks.retain(|r: &Task| r.get_id() != record_id);
-                deleted = cache.tasks.len() < initial_len;
+                cache.tasks.len() < initial_len
             }, 
             "school_notes" => {
                 let initial_len = cache.notes.len();
                 cache.notes.retain(|r: &SchoolNote| r.get_id() != record_id);
-                deleted = cache.notes.len() < initial_len;
+                cache.notes.len() < initial_len
             }, 
             "school_grades" => {
                 let initial_len = cache.grades.len();
                 cache.grades.retain(|r: &SchoolGrade| r.get_id() != record_id);
-                deleted = cache.grades.len() < initial_len;
+                cache.grades.len() < initial_len
             }, 
             "swim_sessions" => {
                 let initial_len = cache.swims.len();
                 cache.swims.retain(|r: &SwimSession| r.get_id() != record_id);
-                deleted = cache.swims.len() < initial_len;
+                cache.swims.len() < initial_len
             }, 
             "swim_galas" => {
                 let initial_len = cache.galas.len();
                 cache.galas.retain(|r: &SwimGala| r.get_id() != record_id);
-                deleted = cache.galas.len() < initial_len;
+                cache.galas.len() < initial_len
             }, 
             "qualifying_times" => {
                 let initial_len = cache.qts.len();
                 cache.qts.retain(|r: &QualifyingTime| r.get_id() != record_id);
-                deleted = cache.qts.len() < initial_len;
+                cache.qts.len() < initial_len
             }, 
             "flashcards" => {
                 let initial_len = cache.flashcards.len();
                 cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id);
-                deleted = cache.flashcards.len() < initial_len;
+                cache.flashcards.len() < initial_len
             }, 
             _ => return Err(anyhow!("Unknown collection: {}", effective_collection)),
-        }
+        };
 
         if deleted {
             println!("[Data] Local record deleted successfully.");

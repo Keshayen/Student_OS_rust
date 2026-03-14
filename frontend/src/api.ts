@@ -47,8 +47,12 @@ export interface SchoolFlashcard {
     question: string;
     answer: string;
     srs_interval: number;
+    easeFactor: string;
     repetitions: number;
     nextReview: string;
+    createdAt: string;
+    firestoreId?: string | null;
+    imageUrl?: string | null;
 }
 
 export interface SchoolGrade {

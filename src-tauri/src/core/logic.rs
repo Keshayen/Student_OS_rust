@@ -1,6 +1,7 @@
 use super::models::*;
 use chrono::{Utc, Duration};
 
+#[allow(dead_code)]
 pub enum ReviewQuality {
     Again,
     Hard,
@@ -8,6 +9,7 @@ pub enum ReviewQuality {
     Easy,
 }
 
+#[allow(dead_code)]
 pub struct SpacedRepetitionService;
 
 impl SpacedRepetitionService {
@@ -19,11 +21,7 @@ impl SpacedRepetitionService {
             ReviewQuality::Easy => 5,
         };
 
-        let current_ease: f64 = match &card.ease_factor {
-            serde_json::Value::String(s) => s.parse().unwrap_or(2.5),
-            serde_json::Value::Number(n) => n.as_f64().unwrap_or(2.5),
-            _ => 2.5,
-        };
+        let current_ease: f64 = card.ease_factor.parse().unwrap_or(2.5);
 
         let mut new_ease = current_ease + (0.1 - (5.0 - q as f64) * (0.08 + (5.0 - q as f64) * 0.02));
         if new_ease < 1.3 { new_ease = 1.3; }
@@ -48,7 +46,7 @@ impl SpacedRepetitionService {
         let mut updated_card = card.clone();
         updated_card.next_review = (Utc::now() + Duration::days(_new_interval as i64)).to_rfc3339();
         updated_card.interval = _new_interval;
-        updated_card.ease_factor = serde_json::Value::String(format!("{:.2}", new_ease));
+        updated_card.ease_factor = format!("{:.2}", new_ease);
         updated_card.repetitions = new_repetitions;
         updated_card
     }
@@ -80,17 +78,20 @@ mod tests {
             question: "1+1?".to_string(),
             answer: "2".to_string(),
             interval: 1,
-            ease_factor: serde_json::Value::String("2.5".to_string()),
+            ease_factor: "2.5".to_string(),
             repetitions: 0,
             next_review: "".to_string(),
+            created_at: "".to_string(),
+            firestore_id: None,
+            image_url: None,
         };
 
         // Review 1: Good
         card = SpacedRepetitionService::process_review(&card, ReviewQuality::Good);
         assert_eq!(card.repetitions, 1);
         assert_eq!(card.interval, 1);
-        let ease = card.ease_factor.as_str().unwrap().parse::<f64>().unwrap();
-        assert!(ease.abs() - 2.5 < 0.01); // remains 2.5 on 'Good'
+        let ease: f64 = card.ease_factor.parse().unwrap();
+        assert!((ease - 2.5).abs() < 0.01); // remains 2.5 on 'Good'
 
         // Review 2: Good
         card = SpacedRepetitionService::process_review(&card, ReviewQuality::Good);
@@ -100,7 +101,7 @@ mod tests {
         // Review 3: Easy (Boost ease)
         card = SpacedRepetitionService::process_review(&card, ReviewQuality::Easy);
         assert_eq!(card.repetitions, 3);
-        let ease = card.ease_factor.as_str().unwrap().parse::<f64>().unwrap();
+        let ease: f64 = card.ease_factor.parse().unwrap();
         assert!(ease > 2.5); // Ease boosted
     }
 
@@ -114,16 +115,19 @@ mod tests {
             question: "DNA?".to_string(),
             answer: "Deoxyribo...".to_string(),
             interval: 14,
-            ease_factor: serde_json::Value::String("2.6".to_string()),
+            ease_factor: "2.6".to_string(),
             repetitions: 4,
             next_review: "".to_string(),
+            created_at: "".to_string(),
+            firestore_id: None,
+            image_url: None,
         };
 
         let new_card = SpacedRepetitionService::process_review(&card, ReviewQuality::Again);
         assert_eq!(new_card.repetitions, 0); // Repetitions reset
         assert_eq!(new_card.interval, 1); // Interval resets
         
-        let new_ease = new_card.ease_factor.as_str().unwrap().parse::<f64>().unwrap();
+        let new_ease: f64 = new_card.ease_factor.parse().unwrap();
         assert!(new_ease < 2.6); // Ease drops considerably
     }
 }

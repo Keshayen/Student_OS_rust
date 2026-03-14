@@ -105,6 +105,7 @@ async function init() {
                 <option value="swim_sessions">Swim Session</option>
                 <option value="swim_galas">Swim Gala</option>
                 <option value="qualifying_times">Qualifying Time</option>
+                <option value="flashcards">Flashcard</option>
               </select>
             </div>
             
@@ -438,10 +439,17 @@ async function init() {
   const updateModalFields = () => {
     const type = entryTypeSelect.value;
     
+    // Find current item if editing
+    let item: any = null;
+    if (editingRecordId && editingCollection) {
+        const listKey = editingCollection === 'habits' ? 'tasks' : editingCollection;
+        item = (state as any)[listKey]?.find((x: any) => x.id === editingRecordId);
+    }
+    
     // Toggle Title Visibility
     const titleContainer = document.getElementById('title-container');
     if (titleContainer) {
-        if (type === 'swim_sessions') {
+        if (type === 'swim_sessions' || type === 'flashcards') {
             titleContainer.classList.add('hidden');
         } else {
             titleContainer.classList.remove('hidden');
@@ -604,9 +612,54 @@ async function init() {
                 </div>
             </div>
         `;
+    } else if (type === 'flashcards') {
+        const subOptions = SUBJECTS.map(s => `<option value="${s}">${s}</option>`).join('');
+        const currentSub = item ? item.subject : SUBJECTS[0];
+        const noteOptions = state.notes
+            .filter(n => n.subject === currentSub)
+            .map(n => `<option value="${n.id}" ${item && item.noteId === n.id ? 'selected' : ''}>${n.title}</option>`)
+            .join('');
+
+        console.log(`[UI] Populating Flashcard Modal: ${state.notes.length} total notes.`);
+        html = `
+            <div class="space-y-1">
+                <label class="text-[10px] font-bold uppercase text-slate-500 ml-1">Subject</label>
+                <select id="entry-subject" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500">${subOptions}</select>
+            </div>
+            <div class="space-y-1">
+                <label class="text-[10px] font-bold uppercase text-slate-500 ml-1">Link to Note</label>
+                <select id="entry-note-id" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500">
+                    <option value="">No Note Linked</option>
+                    ${noteOptions}
+                </select>
+            </div>
+            <div class="space-y-1">
+                <label class="text-[10px] font-bold uppercase text-slate-500 ml-1">Question</label>
+                <textarea id="entry-question" rows="2" placeholder="The question..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"></textarea>
+            </div>
+            <div class="space-y-1">
+                <label class="text-[10px] font-bold uppercase text-slate-500 ml-1">Answer</label>
+                <textarea id="entry-answer" rows="2" placeholder="The answer..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-blue-500"></textarea>
+            </div>
+        `;
     }
 
     dynamicFields.innerHTML = html;
+
+    // Attach dynamic listeners for flashcards
+    if (type === 'flashcards') {
+        const subjSelect = document.getElementById('entry-subject') as HTMLSelectElement;
+        const noteSelect = document.getElementById('entry-note-id') as HTMLSelectElement;
+        if (subjSelect && noteSelect) {
+            subjSelect.addEventListener('change', () => {
+                const s = subjSelect.value;
+                const filtered = state.notes.filter(n => n.subject === s);
+                noteSelect.innerHTML = '<option value="">No Note Linked</option>' + 
+                    filtered.map(n => `<option value="${n.id}">${n.title}</option>`).join('');
+            });
+            if (item) subjSelect.value = item.subject;
+        }
+    }
   }
 
   const handleSave = async () => {
@@ -614,10 +667,16 @@ async function init() {
     const title = (document.getElementById('entry-title') as HTMLInputElement).value;
     
     // Validation
-    if (type !== 'swim_sessions' && !title) return alert("Please enter a title");
+    if (type !== 'swim_sessions' && type !== 'flashcards' && !title) return alert("Please enter a title");
 
     const userId = "LRA8iDK1iBUKGCdVIOff7CjVhxT2";
     const collection = type === 'habits' ? 'tasks' : type;
+    
+    if (type === 'flashcards') {
+        const q = (document.getElementById('entry-question') as HTMLTextAreaElement).value;
+        const a = (document.getElementById('entry-answer') as HTMLTextAreaElement).value;
+        if (!q || !a) return alert("Flashcards require both a question and an answer.");
+    }
     
 
 
@@ -630,7 +689,7 @@ async function init() {
 
     let record: any = baseRecord ? { ...baseRecord } : { id: "", userId };
     
-    if (type !== 'swim_sessions') {
+    if (type !== 'swim_sessions' && type !== 'flashcards') {
         record.title = title;
         if (type === 'swim_galas' || type === 'qualifying_times') record.name = title;
     }
@@ -691,6 +750,26 @@ async function init() {
             record.targetTime = Math.floor(parseFloat((document.getElementById('entry-target-time') as HTMLInputElement).value) * 1000) || 0;
             record.course = (document.getElementById('entry-course') as HTMLSelectElement).value;
             record.isAchieved = record.isAchieved || false;
+        } else if (type === 'flashcards') {
+            record.subject = (document.getElementById('entry-subject') as HTMLSelectElement).value;
+            record.noteId = (document.getElementById('entry-note-id') as HTMLSelectElement).value || "";
+            record.question = (document.getElementById('entry-question') as HTMLTextAreaElement).value;
+            record.answer = (document.getElementById('entry-answer') as HTMLTextAreaElement).value;
+            
+            // Ensure correct types for SRS fields
+            record.srs_interval = Number(record.srs_interval || 0);
+            record.repetitions = Number(record.repetitions || 0);
+            record.easeFactor = String(record.easeFactor || record.ease_factor || "2.5");
+            
+            if (!baseRecord) {
+                const now = new Date();
+                const ts = now.toISOString().replace('Z', '000');
+                record.nextReview = ts;
+                record.createdAt = ts;
+                record.firestoreId = null;
+                record.imageUrl = null;
+            }
+            record.createdAt = record.createdAt || new Date().toISOString().replace('Z', '000');
         }
         
         saveBtn.disabled = true;
@@ -806,9 +885,14 @@ async function init() {
                setVal('entry-course', item.course);
            } else if (typeStr === 'qualifying_times') {
                setVal('entry-event-name', item.eventName);
-               setVal('entry-target-time', parseFloat((item.targetTime / 1000).toFixed(2)));
-               setVal('entry-course', item.course);
-           }
+                setVal('entry-target-time', parseFloat((item.targetTime / 1000).toFixed(2)));
+                setVal('entry-course', item.course);
+            } else if (typeStr === 'flashcards') {
+                setVal('entry-subject', item.subject);
+                setVal('entry-note-id', item.noteId);
+                setVal('entry-question', item.question);
+                setVal('entry-answer', item.answer);
+            }
            
            modalOverlay.classList.remove('hidden');
            modalOverlay.classList.add('flex');
