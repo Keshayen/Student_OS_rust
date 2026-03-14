@@ -223,21 +223,31 @@ impl TrailbaseService {
         let is_offline = self.is_offline.load(Ordering::Relaxed);
         let mut sync_needed = is_offline;
         
+        println!("[Data] Creating new record in '{}' (Mode: {})", collection, if is_offline { "OFFLINE" } else { "ONLINE" });
+
         let record_id = if !is_offline {
             let mut val = serde_json::to_value(&record)?;
             if let Some(obj) = val.as_object_mut() {
+                // CRITICAL: Remove ID so the DB generates it
                 obj.remove("id");
             }
             match self.client.records(collection).create(&val).await {
-                Ok(id) => id,
+                Ok(id) => {
+                    println!("[Data] Successfully created remote record with ID: {}", id);
+                    id
+                },
                 Err(e) => {
-                    println!("[Sync] Remote create failed, queuing for later: {:?}", e);
+                    println!("[Sync] Remote create failed, queuing for later. Error: {:?}", e);
                     sync_needed = true;
-                    uuid::Uuid::new_v4().to_string()
+                    let temp_id = format!("temp_{}", uuid::Uuid::new_v4());
+                    println!("[Sync] Generated temporary ID: {}", temp_id);
+                    temp_id
                 }
             }
         } else {
-            uuid::Uuid::new_v4().to_string()
+            let temp_id = format!("temp_{}", uuid::Uuid::new_v4());
+            println!("[Data] Offline mode: Generated temporary ID: {}", temp_id);
+            temp_id
         };
         
         record.set_id(record_id.clone());
@@ -260,7 +270,7 @@ impl TrailbaseService {
             "swim_galas" => if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) { cache.galas.push(v); },
             "qualifying_times" => if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) { cache.qts.push(v); },
             "flashcards" => if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) { cache.flashcards.push(v); },
-            _ => {}
+            _ => { println!("[Warning] Attempted to save to unknown collection: {}", collection); }
         }
         
         let json_data = serde_json::to_string(&*cache).map_err(|e| anyhow!("Serialization error: {}", e))?;

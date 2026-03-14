@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.keshayennaidu.student_os_rust",
   "build": {
-    "frontendDist": "../src"
+    "beforeDevCommand": "npm --prefix frontend run dev",
+    "beforeBuildCommand": "npm --prefix frontend run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../frontend/dist"
   },
   "app": {
     "withGlobalTauri": true,
