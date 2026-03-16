@@ -29,3 +29,9 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 uuid = { version = "1", features = ["v4"] }
 openssl = { version = "0.10", features = ["vendored"] }
+
+[profile.release]
+opt-level = 3
+lto = true        # This is the same as "fat" but more compatible
+codegen-units = 1 # Better optimization, slower build
+panic = "abort"   # Strips out more code, makes the binary even smaller

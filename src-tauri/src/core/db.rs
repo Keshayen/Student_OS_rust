@@ -59,8 +59,8 @@ impl TrailbaseService {
 
         let cache = Arc::new(Mutex::new(cache_data));
         let is_offline = Arc::new(AtomicBool::new(true));
-
-        let server_url = "http://100.96.26.38:4000".to_string();
+// the old thing for when this url inevitiable stops working is http://100.96.26.38:4000
+        let server_url = "https://keshayens-server.tail28d7e8.ts.net".to_string();
         
         // Standard initialization
         let client = Client::new(&server_url, None)?;

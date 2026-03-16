@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "student_os_rust",
   "version": "0.1.0",
-  "identifier": "com.keshayennaidu.student_os_rust",
+  "identifier": "com.keshayennaidu.student-os-rust",
   "build": {
     "beforeDevCommand": "npm --prefix ./frontend run dev",
     "beforeBuildCommand": "npm --prefix ./frontend run build",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "student_os_rust",
+        "title": "Student OS",
         "width": 800,
         "height": 600
       }
