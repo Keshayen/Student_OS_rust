@@ -1,8 +1,9 @@
 use crate::core::db::TrailbaseService;
 use crate::core::models::{Task, SchoolNote, SchoolFlashcard, SchoolGrade, SwimGala, SwimSession, QualifyingTime};
-use tauri::{State, Manager};
+use tauri::{State, Manager, Emitter};
 use serde_json::Value;
 use tokio::sync::Mutex; 
+use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState, GlobalShortcutExt};
 
 mod core; 
 
@@ -162,11 +163,11 @@ async fn delete_record_command(state: State<'_, AppState>, collection: String, r
     }
 }
 
-#[tauri::command]
-async fn nuke_database(state: State<'_, AppState>) -> Result<(), String> {
-    let mut trailbase = state.trailbase_service.lock().await;
-    trailbase.nuke_local_data().await.map_err(|e| e.to_string())
-}
+//#[tauri::command]
+//async fn nuke_database(state: State<'_, AppState>) -> Result<(), String> {
+//    let mut trailbase = state.trailbase_service.lock().await;
+//  trailbase.nuke_local_data().await.map_err(|e| e.to_string())
+//}
 
 #[tauri::command]
 async fn refresh_data_command(app_handle: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
@@ -190,6 +191,28 @@ pub fn run() {
         tauri::Builder::default()
             .plugin(tauri_plugin_opener::init())
             .plugin(tauri_plugin_fs::init())
+            .plugin(
+                tauri_plugin_global_shortcut::Builder::new()
+                    .with_handler(|app, shortcut, event| {
+                        if event.state == ShortcutState::Pressed {
+                            if shortcut.matches(Modifiers::SUPER, Code::KeyN) ||
+                               shortcut.matches(Modifiers::CONTROL, Code::KeyN) {
+                                let _ = app.emit("new_data_shortcut", ());
+                            }
+                        }
+                    })
+                    .build(),
+            )
+            .setup(|app| {
+                let cmd_n = Shortcut::new(Some(Modifiers::SUPER), Code::KeyN);
+                let ctrl_n = Shortcut::new(Some(Modifiers::CONTROL), Code::KeyN);
+
+                // Attempt to register both. Ignore errors (e.g. conflict or unsupported on OS)
+                let _ = app.handle().global_shortcut().register(cmd_n);
+                let _ = app.handle().global_shortcut().register(ctrl_n);
+
+                Ok(())
+            })
             .invoke_handler(tauri::generate_handler![
                 get_tasks,
                 get_notes,
@@ -201,7 +224,7 @@ pub fn run() {
                 create_record_command,
                 update_record_command,
                 delete_record_command,
-                nuke_database,
+                //nuke_database,
                 refresh_data_command,
                 get_connection_status
             ])

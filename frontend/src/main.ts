@@ -1095,6 +1095,11 @@ async function init() {
     else if (status === 'syncing') console.log("[Sync] Background sync in progress...");
   });
 
+  Api.onNewDataShortcut(() => {
+    console.log("Shortcut triggered: new data");
+    addBtn.click();
+  });
+
   // Initial Fetch
   await fetchData();
 }

@@ -29,6 +29,7 @@ tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 uuid = { version = "1", features = ["v4"] }
 openssl = { version = "0.10", features = ["vendored"] }
+tauri-plugin-global-shortcut = "2.3.1"
 
 [profile.release]
 opt-level = 3
