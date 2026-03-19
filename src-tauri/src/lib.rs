@@ -195,8 +195,7 @@ pub fn run() {
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(|app, shortcut, event| {
                         if event.state == ShortcutState::Pressed {
-                            if shortcut.matches(Modifiers::SUPER, Code::KeyN) ||
-                               shortcut.matches(Modifiers::CONTROL, Code::KeyN) {
+                            if shortcut.matches(Modifiers::SUPER, Code::KeyN) { // Only Cmd+N
                                 let _ = app.emit("new_data_shortcut", ());
                             }
                         }
@@ -205,11 +204,9 @@ pub fn run() {
             )
             .setup(|app| {
                 let cmd_n = Shortcut::new(Some(Modifiers::SUPER), Code::KeyN);
-                let ctrl_n = Shortcut::new(Some(Modifiers::CONTROL), Code::KeyN);
 
-                // Attempt to register both. Ignore errors (e.g. conflict or unsupported on OS)
+                // Attempt to register. Ignore errors (e.g. conflict or unsupported on OS)
                 let _ = app.handle().global_shortcut().register(cmd_n);
-                let _ = app.handle().global_shortcut().register(ctrl_n);
 
                 Ok(())
             })

@@ -1097,7 +1097,9 @@ async function init() {
 
   Api.onNewDataShortcut(() => {
     console.log("Shortcut triggered: new data");
-    addBtn.click();
+    if (modalOverlay.classList.contains('hidden')) {
+      addBtn.click();
+    }
   });
 
   // Initial Fetch
