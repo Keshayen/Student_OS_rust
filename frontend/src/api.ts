@@ -149,9 +149,5 @@ export const Api = {
 
     onSyncStatusChange(callback: (status: string) => void) {
         return listen<string>('sync-status', (event) => callback(event.payload));
-    },
-
-    onNewDataShortcut(callback: () => void) {
-        return listen('new_data_shortcut', callback);
     }
 };

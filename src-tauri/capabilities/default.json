@@ -14,9 +14,6 @@
     "core:tray:default",
     "core:window:default",
     "core:path:default",
-    "core:webview:default",
-    "global-shortcut:allow-is-registered",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister"
+    "core:webview:default"
   ]
 }
