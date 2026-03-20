@@ -223,8 +223,13 @@ pub fn run() {
                 
                 tauri::async_runtime::spawn(async move {
                     let state = handle_clone.state::<AppState>();
-                    let trailbase = state.trailbase_service.lock().await;
-                    trailbase.start_background_sync(handle_clone.clone());
+                    {
+                        let trailbase = state.trailbase_service.lock().await;
+                        if let Err(e) = trailbase.perform_initial_migration().await {
+                            eprintln!("[Migration] Error during initial migration: {:?}", e);
+                        }
+                        trailbase.start_background_sync(handle_clone.clone());
+                    }
                 });
             }
             _ => {}

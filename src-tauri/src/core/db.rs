@@ -1,87 +1,150 @@
-use trailbase_client::{Client, ListArguments, Filter, CompareOp};
+use trailbase_client::{Client, ListArguments, Filter, CompareOp, Pagination};
 use super::models::*;
+use super::loro_manager::LoroManager;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::sync::Arc; // Keep std::sync::Arc
-use tokio::sync::Mutex; // Use tokio's Mutex
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum SyncOp {
-    Create { collection: String, data: serde_json::Value },
-    Update { collection: String, id: String, data: serde_json::Value },
-    Delete { collection: String, id: String },
-}
-
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct AppData {
-    pub tasks: Vec<Task>,
-    pub notes: Vec<SchoolNote>,
-    pub grades: Vec<SchoolGrade>,
-    pub swims: Vec<SwimSession>,
-    pub galas: Vec<SwimGala>,
-    pub qts: Vec<QualifyingTime>,
-    pub flashcards: Vec<SchoolFlashcard>,
-    pub pending_sync: Vec<SyncOp>, // Queue for offline changes
-}
-
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::time::{timeout, Duration};
+use loro::VersionVector;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct TrailbaseService {
     client: Client, 
     user_id: String,
-    cache: Arc<Mutex<AppData>>,
+    loro: Arc<Mutex<LoroManager>>,
     storage_path: std::path::PathBuf,
     pub is_offline: Arc<AtomicBool>,
+    last_pushed_vv: Arc<Mutex<VersionVector>>,
+    last_pulled_id: Arc<Mutex<Option<String>>>,
 }
-
-use tauri::{AppHandle, Emitter, Manager};
-use tokio::time::{timeout, Duration};
 
 impl TrailbaseService {
     pub async fn new(handle: AppHandle) -> Result<Self> {
         let storage_dir = handle.path().app_data_dir()
             .map_err(|_| anyhow!("Could not determine app data directory"))?;
         
-        let storage_path = storage_dir.join("student_os_data.json");
-        
+        let storage_path = storage_dir.join("student_os.loro");
         let _ = fs::create_dir_all(&storage_dir);
 
-        let cache_data = if storage_path.exists() {
-            if let Ok(content) = fs::read_to_string(&storage_path) {
-                serde_json::from_str(&content).unwrap_or_default()
-            } else {
-                AppData::default()
-            }
-        } else {
-            AppData::default()
-        };
-
-        let cache = Arc::new(Mutex::new(cache_data));
+        let loro = LoroManager::new(storage_path.clone())?;
+        let vv = loro.get_vv();
+        
+        let loro = Arc::new(Mutex::new(loro));
         let is_offline = Arc::new(AtomicBool::new(true));
-// the old thing for when this url inevitiable stops working is http://100.96.26.38:4000
         let server_url = "https://keshayens-server.tail28d7e8.ts.net".to_string();
         
-        // Standard initialization
         let client = Client::new(&server_url, None)?;
         
-        println!("[System] Initialized in OFFLINE mode (Cache loaded)");
+        println!("[System] Initialized in OFFLINE mode (Loro doc loaded)");
 
         Ok(Self {
             client,
             user_id: "LRA8iDK1iBUKGCdVIOff7CjVhxT2".to_string(),
-            cache,
+            loro,
             storage_path,
             is_offline,
+            last_pushed_vv: Arc::new(Mutex::new(vv)),
+            last_pulled_id: Arc::new(Mutex::new(None)),
         })
+    }
+
+    async fn ensure_login(&self) -> Result<()> {
+        let username = "study@example.com".to_string();
+        let password = "study1234".to_string();
+        
+        match timeout(Duration::from_secs(5), self.client.login(&username, &password)).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(anyhow!("Login failed: {:?}", e)),
+            Err(_) => Err(anyhow!("Login timeout")),
+        }
+    }
+
+    pub async fn perform_initial_migration(&self) -> Result<()> {
+        println!("[Migration] Checking if initial migration is needed...");
+        
+        // Check if we already have data across ALL collections
+        {
+            let loro = self.loro.lock().await;
+            let mut has_data = false;
+            for coll in &["tasks", "school_notes", "flashcards", "school_grades", "swim_sessions", "swim_galas", "qualifying_times"] {
+                let records: Vec<serde_json::Value> = loro.get_records(coll).unwrap_or_default();
+                if !records.is_empty() {
+                    has_data = true;
+                    break;
+                }
+            }
+            if has_data {
+                println!("[Migration] Loro doc already contains data. Skipping migration.");
+                return Ok(());
+            }
+        }
+
+        println!("[Migration] No data found in Loro. Ensuring login...");
+        if let Err(e) = self.ensure_login().await {
+            return Err(anyhow!("Migration failed because could not login: {:?}", e));
+        }
+
+        println!("[Migration] Starting pull from legacy tables...");
+        let user_id = &self.user_id;
+        let client = &self.client;
+
+        // Helper to fetch and log
+        async fn fetch_and_log<T>(client: &Client, coll: &str, user_id: &str) -> Vec<T> 
+        where T: serde::de::DeserializeOwned + 'static {
+            match TrailbaseService::fetch_remote::<T>(client, coll, user_id).await {
+                Ok(items) => {
+                    println!("[Migration] Fetched {} items from '{}'", items.len(), coll);
+                    items
+                },
+                Err(e) => {
+                    println!("[Migration] Failed to fetch from '{}': {:?}", coll, e);
+                    Vec::new()
+                }
+            }
+        }
+
+        let tasks = fetch_and_log::<Task>(client, "tasks", user_id).await;
+        let notes = fetch_and_log::<SchoolNote>(client, "school_notes", user_id).await;
+        let grades = fetch_and_log::<SchoolGrade>(client, "school_grades", user_id).await;
+        let swims = fetch_and_log::<SwimSession>(client, "swim_sessions", user_id).await;
+        let galas = fetch_and_log::<SwimGala>(client, "swim_galas", user_id).await;
+        let qts = fetch_and_log::<QualifyingTime>(client, "qualifying_times", user_id).await;
+        let flashcards = fetch_and_log::<SchoolFlashcard>(client, "flashcards", user_id).await;
+
+        let loro = self.loro.lock().await;
+        let mut total_migrated = 0;
+        for item in tasks { loro.upsert_record("tasks", &item)?; total_migrated += 1; }
+        for item in notes { loro.upsert_record("school_notes", &item)?; total_migrated += 1; }
+        for item in grades { loro.upsert_record("school_grades", &item)?; total_migrated += 1; }
+        for item in swims { loro.upsert_record("swim_sessions", &item)?; total_migrated += 1; }
+        for item in galas { loro.upsert_record("swim_galas", &item)?; total_migrated += 1; }
+        for item in qts { loro.upsert_record("qualifying_times", &item)?; total_migrated += 1; }
+        for item in flashcards { loro.upsert_record("flashcards", &item)?; total_migrated += 1; }
+
+        println!("[Migration] Migration complete. Total items migrated: {}", total_migrated);
+        Ok(())
+    }
+
+    async fn fetch_remote<T: serde::de::DeserializeOwned + 'static>(client: &Client, coll: &str, user_id: &str) -> Result<Vec<T>> {
+        let args = ListArguments::new()
+            .with_filters(Filter::new("userId", CompareOp::Equal, user_id));
+        let response = client.records(coll).list::<serde_json::Value>(args).await.map_err(|e| anyhow!("{:?}", e))?;
+        let items: Vec<T> = response.records.into_iter() 
+            .map(|r| serde_json::from_value(r))
+            .collect::<Result<Vec<T>, _>>()?;
+        Ok(items)
     }
 
     pub fn start_background_sync(&self, handle: AppHandle) {
         let client_clone = self.client.clone();
-        let cache_clone = self.cache.clone();
-        let storage_path_clone = self.storage_path.clone();
+        let loro_clone = self.loro.clone();
         let is_offline_clone = self.is_offline.clone();
-        let user_id_clone = self.user_id.clone();
+        let last_pushed_vv = self.last_pushed_vv.clone();
+        let last_pulled_id = self.last_pulled_id.clone();
         let username = "study@example.com".to_string();
         let password = "study1234".to_string();
 
@@ -101,17 +164,15 @@ impl TrailbaseService {
                         is_offline_clone.store(false, Ordering::Relaxed);
                         let _ = handle.emit("connection-status", false); 
                         
-                        // Initial sync upon reconnection
                         let _ = handle.emit("sync-status", "syncing");
-                        Self::flush_sync_queue(&client_clone, &cache_clone, &storage_path_clone, &handle).await;
-                        Self::sync_all_remote(&client_clone, &cache_clone, &storage_path_clone, &user_id_clone, &handle).await;
+                        let _ = Self::sync_loro(&client_clone, &loro_clone, &last_pushed_vv, &last_pulled_id, &handle).await;
                         let _ = handle.emit("sync-status", "idle");
                     }
                 } else {
-                    // Check if we are still online
+                    let args = ListArguments::new().with_count(true);
                     let heartbeat = timeout(
                         Duration::from_secs(5), 
-                        client_clone.records("tasks").list::<serde_json::Value>(ListArguments::new().with_count(true))
+                        client_clone.records("sync_updates").list::<serde_json::Value>(args)
                     ).await;
 
                     if heartbeat.is_err() || heartbeat.unwrap().is_err() {
@@ -120,343 +181,195 @@ impl TrailbaseService {
                         offline_start_time = std::time::Instant::now(); 
                         let _ = handle.emit("connection-status", true);
                     } else {
-                        // Still online, try flushing anything that might have been queued during momentary blips
-                        Self::flush_sync_queue(&client_clone, &cache_clone, &storage_path_clone, &handle).await;
+                        let _ = Self::sync_loro(&client_clone, &loro_clone, &last_pushed_vv, &last_pulled_id, &handle).await;
                     }
                 }
 
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         });
     }
 
-    async fn flush_sync_queue(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf, handle: &AppHandle) {
-        let ops = {
-            let mut data = cache.lock().await;
-            if data.pending_sync.is_empty() { return; }
-            let ops = data.pending_sync.clone();
-            data.pending_sync.clear();
-            ops
+    async fn sync_loro(
+        client: &Client, 
+        loro: &Arc<Mutex<LoroManager>>, 
+        last_pushed_vv: &Arc<Mutex<VersionVector>>,
+        last_pulled_id: &Arc<Mutex<Option<String>>>,
+        handle: &AppHandle
+    ) -> Result<()> {
+        // 1. Pull new updates
+        let mut last_id = last_pulled_id.lock().await;
+        let mut args = ListArguments::new();
+        
+        if let Some(id) = &*last_id {
+            args = args.with_filters(Filter::new("id", CompareOp::GreaterThan, id.clone()));
+        }
+
+        let resp = client.records("sync_updates").list::<serde_json::Value>(args).await;
+        if let Ok(records) = resp {
+            let mut imported = false;
+            for rec in records.records {
+                let data_val = rec.get("data").unwrap_or(&serde_json::Value::Null);
+                let data = match data_val {
+                    serde_json::Value::String(s) => base64_or_hex_decode(s),
+                    serde_json::Value::Array(arr) => arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect(),
+                    _ => Vec::new(),
+                };
+                let peer_id = rec.get("peer_id").and_then(|v| v.as_str()).unwrap_or("");
+                
+                let current_peer_id = {
+                    let l = loro.lock().await;
+                    l.peer_id()
+                };
+
+                if peer_id != current_peer_id && !data.is_empty() {
+                    let l = loro.lock().await;
+                    if let Err(e) = l.import_updates(&data) {
+                        println!("[Sync] Error importing update from peer {}: {:?}", peer_id, e);
+                        let hex_preview = if data.len() > 20 {
+                            format!("{}...", hex::encode(&data[..20]))
+                        } else {
+                            hex::encode(&data)
+                        };
+                        println!("[Sync] Data hex preview: {}", hex_preview);
+                    } else {
+                        println!("[Sync] Successfully imported update from peer {}", peer_id);
+                        imported = true;
+                    }
+                }
+                
+                if let Some(id_str) = rec.get("id").and_then(|v| v.as_str()) {
+                    *last_id = Some(id_str.to_string());
+                }
+            }
+            if imported {
+                let _ = handle.emit("data-changed", ());
+            }
+        }
+
+        // 2. Push local updates
+        let mut last_vv = last_pushed_vv.lock().await;
+        let (updates, new_vv, peer_id) = {
+            let l = loro.lock().await;
+            let current_vv = l.get_vv();
+            if &current_vv == &*last_vv {
+                (None, current_vv, l.peer_id())
+            } else {
+                let data = l.export_updates(&*last_vv)?;
+                (Some(data), current_vv, l.peer_id())
+            }
         };
 
-        let has_ops = !ops.is_empty();
-        let mut failed_ops = Vec::new();
-        for op in ops {
-            let res = match &op {
-                SyncOp::Create { collection, data } => {
-                    let mut clean_data = data.clone();
-                    if let Some(obj) = clean_data.as_object_mut() {
-                        obj.remove("id");
+        if let Some(data) = updates {
+            if !data.is_empty() {
+                // 1. Get current MAX(sequence_number)
+                let mut max_seq = 0;
+                let args = ListArguments::new()
+                    .with_pagination(Pagination::new().with_limit(1))
+                    .with_order(["-sequence_number"]);
+                
+                if let Ok(resp) = client.records("sync_updates").list::<serde_json::Value>(args).await {
+                    if let Some(record) = resp.records.first() {
+                        max_seq = record.get("sequence_number")
+                            .and_then(|v| v.as_i64())
+                            .unwrap_or(0);
                     }
-                    client.records(collection).create(&clean_data).await.map(|_| ())
-                },
-                SyncOp::Update { collection, id, data } => {
-                    let mut clean_data = data.clone();
-                    if let Some(obj) = clean_data.as_object_mut() {
-                        obj.remove("id");
-                    }
-                    client.records(collection).update(id, &clean_data).await.map(|_| ())
-                },
-                SyncOp::Delete { collection, id } => client.records(collection).delete(id).await.map(|_| ()),
-            };
-            
-            if let Err(e) = res {
-                let err_msg = format!("{:?}", e);
-                if err_msg.contains("HttpStatus(400)") {
-                    println!("[Sync] Flush failed with 400 Bad Request. Op: {:?}, Error: {:#?}", op, e);
-                    println!("[Sync] Dropping corrupt operation.");
-                    let _ = handle.emit("sync-status", "error");
+                }
+
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+                
+                let payload = serde_json::json!({
+                    "peer_id": peer_id,
+                    "data": data, // serde_json will serialize Vec<u8> as an array of numbers
+                    "sequence_number": max_seq + 1,
+                    "created_at": now,
+                });
+                
+                if let Err(e) = client.records("sync_updates").create(&payload).await {
+                    println!("[Sync] Error pushing update: {:?}", e);
                 } else {
-                    println!("[Sync] Flush failed for op, re-queuing: {:?}", e);
-                    failed_ops.push(op);
+                    *last_vv = new_vv;
                 }
             }
         }
-        
-        if has_ops && failed_ops.is_empty() {
-             let _ = handle.emit("sync-status", "complete");
-        }
-        
-        let mut data = cache.lock().await;
-        if !failed_ops.is_empty() {
-            for op in failed_ops {
-                data.pending_sync.push(op);
-            }
-        }
-        
-        if let Ok(json) = serde_json::to_string(&*data) {
-            let _ = fs::write(storage_path, json);
-        }
+
+        Ok(())
     }
 
-    async fn sync_all_remote(client: &Client, cache: &Arc<Mutex<AppData>>, storage_path: &std::path::PathBuf, user_id: &str, _handle: &AppHandle) {
-        let tasks = Self::fetch_remote::<Task>(client, "tasks", user_id).await;
-        let notes = Self::fetch_remote::<SchoolNote>(client, "school_notes", user_id).await;
-        let grades = Self::fetch_remote::<SchoolGrade>(client, "school_grades", user_id).await;
-        let swims = Self::fetch_remote::<SwimSession>(client, "swim_sessions", user_id).await;
-        let galas = Self::fetch_remote::<SwimGala>(client, "swim_galas", user_id).await;
-        let qts = Self::fetch_remote::<QualifyingTime>(client, "qualifying_times", user_id).await;
-        let flashcards = Self::fetch_remote::<SchoolFlashcard>(client, "flashcards", user_id).await;
-
-        let mut data = cache.lock().await;
-        if let Ok(items) = tasks { data.tasks = items; }
-        if let Ok(items) = notes { data.notes = items; }
-        if let Ok(items) = grades { data.grades = items; }
-        if let Ok(items) = swims { data.swims = items; }
-        if let Ok(items) = galas { data.galas = items; }
-        if let Ok(items) = qts { data.qts = items; }
-        if let Ok(items) = flashcards { data.flashcards = items; }
-        
-        if let Ok(json) = serde_json::to_string(&*data) {
-            let _ = fs::write(storage_path, json);
-        }
-        println!("[Data] Remote sync complete.");
-    }
 
     pub async fn get_tasks(&self) -> Result<Vec<Task>> {
-        let cache = self.cache.lock().await;
-        Ok(cache.tasks.clone())
+        let loro = self.loro.lock().await;
+        loro.get_records("tasks")
     }
 
     pub async fn get_notes(&self) -> Result<Vec<SchoolNote>> {
-        let cache = self.cache.lock().await;
-        Ok(cache.notes.clone())
+        let loro = self.loro.lock().await;
+        loro.get_records("school_notes")
     }
 
     pub async fn get_flashcards(&self) -> Result<Vec<SchoolFlashcard>> {
-        let cache = self.cache.lock().await;
-        Ok(cache.flashcards.clone())
+        let loro = self.loro.lock().await;
+        loro.get_records("flashcards")
     }
 
     pub async fn get_grades(&self) -> Result<Vec<SchoolGrade>> {
-        let cache = self.cache.lock().await;
-        Ok(cache.grades.clone())
+        let loro = self.loro.lock().await;
+        loro.get_records("school_grades")
     }
 
     pub async fn get_swim_sessions(&self) -> Result<Vec<SwimSession>> {
-        let cache = self.cache.lock().await;
-        Ok(cache.swims.clone())
+        let loro = self.loro.lock().await;
+        loro.get_records("swim_sessions")
     }
 
     pub async fn get_swim_galas(&self) -> Result<Vec<SwimGala>> {
-        let cache = self.cache.lock().await;
-        Ok(cache.galas.clone())
+        let loro = self.loro.lock().await;
+        loro.get_records("swim_galas")
     }
 
     pub async fn get_qualifying_times(&self) -> Result<Vec<QualifyingTime>> {
-        let cache = self.cache.lock().await;
-        Ok(cache.qts.clone())
+        let loro = self.loro.lock().await;
+        loro.get_records("qualifying_times")
     }
 
-    async fn fetch_remote<T: serde::de::DeserializeOwned + 'static>(client: &Client, coll: &str, user_id: &str) -> Result<Vec<T>> {
-        let args = ListArguments::new()
-            .with_filters(Filter::new("userId", CompareOp::Equal, user_id));
-        let response = client.records(coll).list::<serde_json::Value>(args).await.map_err(|e| anyhow!("{:?}", e))?;
-        let items: Vec<T> = response.records.into_iter() 
-            .map(|r| serde_json::from_value(r))
-            .collect::<Result<Vec<T>, _>>()?;
-        Ok(items)
-    }
-
-    // Generic method to create a new record
     pub async fn create_record<T>(&self, collection: &str, mut record: T) -> Result<T>
     where
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
-        let is_offline = self.is_offline.load(Ordering::Relaxed);
-        let mut sync_needed = is_offline;
-        
-        println!("[Data] Creating new record in '{}' (Mode: {})", collection, if is_offline { "OFFLINE" } else { "ONLINE" });
-
-        let record_id = if !is_offline {
-            let mut val = serde_json::to_value(&record)?;
-            if let Some(obj) = val.as_object_mut() {
-                // CRITICAL: Remove ID so the DB generates it
-                obj.remove("id");
-            }
-            match self.client.records(collection).create(&val).await {
-                Ok(id) => {
-                    println!("[Data] Successfully created remote record with ID: {}", id);
-                    id
-                },
-                Err(e) => {
-                    println!("[Sync] Remote create failed, queuing for later. Error: {:?}", e);
-                    sync_needed = true;
-                    let temp_id = format!("temp_{}", uuid::Uuid::new_v4());
-                    println!("[Sync] Generated temporary ID: {}", temp_id);
-                    temp_id
-                }
-            }
+        let id = if record.get_id().is_empty() || record.get_id().starts_with("temp_") {
+             uuid::Uuid::now_v7().to_string()
         } else {
-            let temp_id = format!("temp_{}", uuid::Uuid::new_v4());
-            println!("[Data] Offline mode: Generated temporary ID: {}", temp_id);
-            temp_id
+            record.get_id().to_string()
         };
-        
-        record.set_id(record_id.clone());
-        
-        // Update cache
-        let mut cache = self.cache.lock().await;
-        
-        if sync_needed {
-            cache.pending_sync.push(SyncOp::Create { 
-                collection: collection.to_string(), 
-                data: serde_json::to_value(record.clone())? 
-            });
-        }
+        record.set_id(id);
 
-        match collection {
-            "tasks" => if let Ok(v) = serde_json::from_value::<Task>(serde_json::to_value(record.clone())?) { cache.tasks.push(v); },
-            "school_notes" => if let Ok(v) = serde_json::from_value::<SchoolNote>(serde_json::to_value(record.clone())?) { cache.notes.push(v); },
-            "school_grades" => if let Ok(v) = serde_json::from_value::<SchoolGrade>(serde_json::to_value(record.clone())?) { cache.grades.push(v); },
-            "swim_sessions" => if let Ok(v) = serde_json::from_value::<SwimSession>(serde_json::to_value(record.clone())?) { cache.swims.push(v); },
-            "swim_galas" => if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) { cache.galas.push(v); },
-            "qualifying_times" => if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) { cache.qts.push(v); },
-            "flashcards" => if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) { cache.flashcards.push(v); },
-            _ => { println!("[Warning] Attempted to save to unknown collection: {}", collection); }
-        }
-        
-        let json_data = serde_json::to_string(&*cache).map_err(|e| anyhow!("Serialization error: {}", e))?;
-        fs::write(&self.storage_path, json_data).map_err(|e| anyhow!("Disk write error: {}", e))?;
-        
+        let loro = self.loro.lock().await;
+        loro.upsert_record(collection, &record)?;
         Ok(record)
     }
 
-    // Generic method to update an existing record
     pub async fn update_record<T>(&self, collection: &str, record: T) -> Result<T>
     where
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
-        let is_offline = self.is_offline.load(Ordering::Relaxed);
-        let mut sync_needed = is_offline;
-        
-        if !is_offline {
-            let mut update_data = serde_json::to_value(&record)?;
-            if let Some(obj) = update_data.as_object_mut() {
-                obj.remove("id");
-            }
-            if self.client.records(collection).update(record.get_id(), &update_data).await.is_err() {
-                sync_needed = true;
-            }
-        }
-
-        let mut cache = self.cache.lock().await;
-        let record_id = record.get_id();
-
-        if sync_needed {
-            cache.pending_sync.push(SyncOp::Update { 
-                collection: collection.to_string(), 
-                id: record_id.to_string(),
-                data: serde_json::to_value(record.clone())? 
-            });
-        }
-        
-        // Update local arrays...
-        match collection {
-            "tasks" => if let Ok(v) = serde_json::from_value::<Task>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.tasks.iter().position(|r| r.get_id() == record_id) { cache.tasks[pos] = v; } }
-            "school_notes" => if let Ok(v) = serde_json::from_value::<SchoolNote>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.notes.iter().position(|r| r.get_id() == record_id) { cache.notes[pos] = v; } }
-            "school_grades" => if let Ok(v) = serde_json::from_value::<SchoolGrade>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.grades.iter().position(|r| r.get_id() == record_id) { cache.grades[pos] = v; } }
-            "swim_sessions" => if let Ok(v) = serde_json::from_value::<SwimSession>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.swims.iter().position(|r| r.get_id() == record_id) { cache.swims[pos] = v; } }
-            "swim_galas" => if let Ok(v) = serde_json::from_value::<SwimGala>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.galas.iter().position(|r| r.get_id() == record_id) { cache.galas[pos] = v; } }
-            "qualifying_times" => if let Ok(v) = serde_json::from_value::<QualifyingTime>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.qts.iter().position(|r| r.get_id() == record_id) { cache.qts[pos] = v; } }
-            "flashcards" => if let Ok(v) = serde_json::from_value::<SchoolFlashcard>(serde_json::to_value(record.clone())?) { if let Some(pos) = cache.flashcards.iter().position(|r| r.get_id() == record_id) { cache.flashcards[pos] = v; } }
-            _ => {},
-        }
-        
-        if let Ok(json) = serde_json::to_string(&*cache) {
-            let _ = fs::write(&self.storage_path, json);
-        }
+        let loro = self.loro.lock().await;
+        loro.upsert_record(collection, &record)?;
         Ok(record)
     }
 
-    // Generic method to delete a record
     pub async fn delete_record<T>(&self, collection: &str, record_id: &str) -> Result<()>
     where
         T: Serialize + for<'de> Deserialize<'de> + Clone + Identifiable + 'static,
     {
-        let is_offline = self.is_offline.load(Ordering::Relaxed);
-        let mut sync_needed = is_offline;
-
-        println!("[Data Service] Deleting from '{}' with ID: {} (Offline: {})", collection, record_id, is_offline);
-
-        // Map 'habits' to 'tasks' for underlying operation
         let effective_collection = if collection == "habits" { "tasks" } else { collection };
-
-        if !is_offline {
-            if let Err(e) = self.client.records(effective_collection).delete(record_id).await {
-                println!("[Sync] Remote delete failed for {}/{}: {:?}", effective_collection, record_id, e);
-                sync_needed = true;
-            } else {
-                println!("[Data] Successfully deleted remote record {}/{}", effective_collection, record_id);
-            }
-        }
-
-        let mut cache = self.cache.lock().await; 
-
-        if sync_needed {
-            cache.pending_sync.push(SyncOp::Delete { 
-                collection: effective_collection.to_string(), 
-                id: record_id.to_string() 
-            });
-        }
-
-        let deleted = match effective_collection {
-            "tasks" => {
-                let initial_len = cache.tasks.len();
-                cache.tasks.retain(|r: &Task| r.get_id() != record_id);
-                cache.tasks.len() < initial_len
-            }, 
-            "school_notes" => {
-                let initial_len = cache.notes.len();
-                cache.notes.retain(|r: &SchoolNote| r.get_id() != record_id);
-                cache.notes.len() < initial_len
-            }, 
-            "school_grades" => {
-                let initial_len = cache.grades.len();
-                cache.grades.retain(|r: &SchoolGrade| r.get_id() != record_id);
-                cache.grades.len() < initial_len
-            }, 
-            "swim_sessions" => {
-                let initial_len = cache.swims.len();
-                cache.swims.retain(|r: &SwimSession| r.get_id() != record_id);
-                cache.swims.len() < initial_len
-            }, 
-            "swim_galas" => {
-                let initial_len = cache.galas.len();
-                cache.galas.retain(|r: &SwimGala| r.get_id() != record_id);
-                cache.galas.len() < initial_len
-            }, 
-            "qualifying_times" => {
-                let initial_len = cache.qts.len();
-                cache.qts.retain(|r: &QualifyingTime| r.get_id() != record_id);
-                cache.qts.len() < initial_len
-            }, 
-            "flashcards" => {
-                let initial_len = cache.flashcards.len();
-                cache.flashcards.retain(|r: &SchoolFlashcard| r.get_id() != record_id);
-                cache.flashcards.len() < initial_len
-            }, 
-            _ => return Err(anyhow!("Unknown collection: {}", effective_collection)),
-        };
-
-        if deleted {
-            println!("[Data] Local record deleted successfully.");
-        } else {
-            println!("[Warning] No record found to delete in '{}' with ID: {}", effective_collection, record_id);
-        }
-
-        if let Ok(json) = serde_json::to_string(&*cache) {
-            let _ = fs::write(&self.storage_path, json);
-        }
+        let loro = self.loro.lock().await;
+        loro.delete_record(effective_collection, record_id)?;
         Ok(())
     }
 
     pub async fn nuke_local_data(&mut self) -> Result<()> {
-        let mut cache = self.cache.lock().await;
-        *cache = AppData::default();
-        if let Ok(json) = serde_json::to_string(&*cache) {
-            let _ = fs::write(&self.storage_path, json);
-        }
+        let mut loro = self.loro.lock().await;
+        loro.nuke()?;
         Ok(())
     }
 
@@ -464,7 +377,22 @@ impl TrailbaseService {
         if self.is_offline.load(Ordering::Relaxed) {
             return Err(anyhow!("Cannot refresh while offline"));
         }
-        Self::sync_all_remote(&self.client, &self.cache, &self.storage_path, &self.user_id, handle).await;
+        // Force a sync
+        Self::sync_loro(&self.client, &self.loro, &self.last_pushed_vv, &self.last_pulled_id, handle).await?;
         Ok(())
     }
+}
+
+fn base64_or_hex_decode(s: &str) -> Vec<u8> {
+    use base64::{Engine as _, engine::general_purpose};
+    if let Ok(data) = general_purpose::STANDARD.decode(s) {
+        return data;
+    }
+    // Fallback to hex
+    if s.len() % 2 == 0 && s.chars().all(|c| c.is_ascii_hexdigit()) {
+        if let Ok(data) = hex::decode(s) {
+            return data;
+        }
+    }
+    Vec::new()
 }

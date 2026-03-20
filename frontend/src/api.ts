@@ -149,5 +149,9 @@ export const Api = {
 
     onSyncStatusChange(callback: (status: string) => void) {
         return listen<string>('sync-status', (event) => callback(event.payload));
+    },
+
+    onDataChanged(callback: () => void) {
+        return listen<void>('data-changed', () => callback());
     }
 };
