@@ -57,10 +57,7 @@ impl LoroManager {
     }
 
     pub fn get_collection_map(&self, name: &str) -> Result<LoroMap> {
-        let root = self.doc.get_map("root");
-        let collection = root
-            .get_or_create_container(name, LoroMap::default())
-            .map_err(|e| anyhow!("Loro error: {:?}", e))?;
+        let collection = self.doc.get_map(name);
         Ok(collection)
     }
 
@@ -82,52 +79,51 @@ impl LoroManager {
     }
 
 
-    pub fn upsert_record<T>(&self, collection_name: &str, record: &T) -> Result<()>
+    pub fn upsert_record_no_save<T>(&self, collection_name: &str, record: &T) -> Result<()>
     where
         T: serde::Serialize + Identifiable,
     {
         let collection = self.get_collection_map(collection_name)?;
         let id = record.get_id().to_string();
         
-        // 1. Convert record to JSON value
         let mut json_val = serde_json::to_value(record)?;
         
-        // 2. Inject updatedAt timestamp
         if let serde_json::Value::Object(ref mut map) = json_val {
             let now = chrono::Utc::now().to_rfc3339();
             map.insert("updatedAt".to_string(), serde_json::Value::String(now));
         }
         
-        // 3. Get or create a nested LoroMap for this specific record
-        // This ensures field-level merging (CRDT) instead of record-level overwrite
         let record_map = collection
             .get_or_create_container(&id, LoroMap::default())
-            .map_err(|e| anyhow!("Loro error: {:?}", e))?;
+            .map_err(|e| anyhow!("Loro error creating record map for {}: {:?}", id, e))?;
             
-        // 4. Update fields in the container
         if let serde_json::Value::Object(map) = json_val {
             for (key, val) in map {
-                // For long text fields, use LoroText container for character-level merging
                 if (key == "content" || key == "notes") && val.is_string() {
                     let s = val.as_str().unwrap_or("");
                     let text_container = record_map.get_or_create_container(&key, LoroText::default())
-                        .map_err(|e| anyhow!("Loro error: {:?}", e))?;
+                        .map_err(|e| anyhow!("Loro error creating text container for {}.{}: {:?}", id, key, e))?;
                     
                     if text_container.to_string() != s {
-                        // Efficient character-level diff and update
-                        text_container.update(s, loro::UpdateOptions::default()).map_err(|e| anyhow!("Loro error: {:?}", e))?;
+                        text_container.update(s, loro::UpdateOptions::default())
+                            .map_err(|e| anyhow!("Loro text update error on {}.{}: {:?}", id, key, e))?;
                     }
-
                     continue;
                 }
 
                 let loro_val = LoroValue::from_json(&val.to_string());
-                record_map.insert(&key, loro_val).map_err(|e| anyhow!("Loro insert error: {:?}", e))?;
+                record_map.insert(&key, loro_val)
+                    .map_err(|e| anyhow!("Loro field insert error on {}.{}: {:?}", id, key, e))?;
             }
         }
+        Ok(())
+    }
 
-
-        
+    pub fn upsert_record<T>(&self, collection_name: &str, record: &T) -> Result<()>
+    where
+        T: serde::Serialize + Identifiable,
+    {
+        self.upsert_record_no_save(collection_name, record)?;
         self.save()?;
         Ok(())
     }
@@ -179,6 +175,10 @@ impl LoroManager {
             .map_err(|e| anyhow!("Loro export error: {:?}", e))?;
         fs::write(&self.storage_path, bytes)?;
         Ok(())
+    }
+
+    pub fn dump_state(&self) -> String {
+        format!("{:?}", self.doc.get_deep_value())
     }
 }
 
