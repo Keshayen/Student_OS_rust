@@ -83,10 +83,16 @@ impl LoroManager {
     where
         T: serde::Serialize + Identifiable,
     {
+        let json_val = serde_json::to_value(record)?;
+        self.upsert_value_no_save(collection_name, json_val)
+    }
+
+    pub fn upsert_value_no_save(&self, collection_name: &str, mut json_val: serde_json::Value) -> Result<()> {
         let collection = self.get_collection_map(collection_name)?;
-        let id = record.get_id().to_string();
-        
-        let mut json_val = serde_json::to_value(record)?;
+        let id = json_val.get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("ID missing from value record"))?
+            .to_string();
         
         if let serde_json::Value::Object(ref mut map) = json_val {
             let now = chrono::Utc::now().to_rfc3339();
@@ -108,12 +114,10 @@ impl LoroManager {
                         text_container.update(s, loro::UpdateOptions::default())
                             .map_err(|e| anyhow!("Loro text update error on {}.{}: {:?}", id, key, e))?;
                     }
-                    continue;
+                } else {
+                    record_map.insert(&key, val)
+                        .map_err(|e| anyhow!("Loro error inserting value into {}.{}: {:?}", id, key, e))?;
                 }
-
-                let loro_val = LoroValue::from_json(&val.to_string());
-                record_map.insert(&key, loro_val)
-                    .map_err(|e| anyhow!("Loro field insert error on {}.{}: {:?}", id, key, e))?;
             }
         }
         Ok(())
@@ -161,6 +165,14 @@ impl LoroManager {
 
     pub fn peer_id(&self) -> String {
         self.doc.peer_id().to_string()
+    }
+
+    pub fn encode_vv(vv: &VersionVector) -> Vec<u8> {
+        vv.encode()
+    }
+
+    pub fn decode_vv(bytes: &[u8]) -> Result<VersionVector> {
+        VersionVector::decode(bytes).map_err(|e| anyhow!("Loro VV decode error: {:?}", e))
     }
 
     pub fn nuke(&mut self) -> Result<()> {

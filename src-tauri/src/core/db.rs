@@ -16,8 +16,15 @@ pub struct TrailbaseService {
     user_id: String,
     loro: Arc<Mutex<LoroManager>>,
     pub is_offline: Arc<AtomicBool>,
+    sync_state_path: std::path::PathBuf,
     last_pushed_vv: Arc<Mutex<VersionVector>>,
     last_pulled_id: Arc<Mutex<Option<String>>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SyncState {
+    last_pushed_vv: Vec<u8>,
+    last_pulled_id: Option<String>,
 }
 
 impl TrailbaseService {
@@ -28,10 +35,24 @@ impl TrailbaseService {
         let storage_path = storage_dir.join("student_os.loro");
         let _ = fs::create_dir_all(&storage_dir);
 
-        let loro = LoroManager::new(storage_path.clone())?;
-        let vv = loro.get_vv();
+        let loro_manager = LoroManager::new(storage_path.clone())?;
+        let mut vv = loro_manager.get_vv();
+        let mut last_id = None;
         
-        let loro = Arc::new(Mutex::new(loro));
+        let sync_state_path = storage_dir.join("sync_state.json");
+        if sync_state_path.exists() {
+            if let Ok(content) = fs::read_to_string(&sync_state_path) {
+                if let Ok(state) = serde_json::from_str::<SyncState>(&content) {
+                    if let Ok(decoded_vv) = LoroManager::decode_vv(&state.last_pushed_vv) {
+                        vv = decoded_vv;
+                        last_id = state.last_pulled_id;
+                        println!("[Sync] Loaded persistent sync state.");
+                    }
+                }
+            }
+        }
+
+        let loro = Arc::new(Mutex::new(loro_manager));
         let is_offline = Arc::new(AtomicBool::new(true));
         let server_url = "https://keshayens-server.tail28d7e8.ts.net".to_string();
         
@@ -44,8 +65,9 @@ impl TrailbaseService {
             user_id: "LRA8iDK1iBUKGCdVIOff7CjVhxT2".to_string(),
             loro,
             is_offline,
+            sync_state_path,
             last_pushed_vv: Arc::new(Mutex::new(vv)),
-            last_pulled_id: Arc::new(Mutex::new(None)),
+            last_pulled_id: Arc::new(Mutex::new(last_id)),
         })
     }
 
@@ -94,6 +116,7 @@ impl TrailbaseService {
         let resp = client.records("sync_updates").list::<serde_json::Value>(args).await;
         
         if let Ok(records) = resp {
+            println!("[Migration] sync_updates list returned {} records", records.records.len());
             if !records.records.is_empty() {
                 println!("[Migration] Found {} sync updates. Building Loro doc from history...", records.records.len());
                 let mut last_id_val = None;
@@ -171,47 +194,51 @@ impl TrailbaseService {
         let qts = fetch_and_log::<QualifyingTime>(client, "qualifying_times", user_id).await;
         let flashcards = fetch_and_log::<SchoolFlashcard>(client, "flashcards", user_id).await;
 
-        let loro = self.loro.lock().await;
+        let mut loro = self.loro.lock().await;
         println!("[Migration] Pre-Migration Loro State: {}", loro.dump_state());
         
         let mut total_migrated = 0;
+        let mut batch_count = 0;
         
-        for item in tasks { 
-            if let Err(e) = loro.upsert_record_no_save("tasks", &item) {
-                println!("[Migration] Tasks error (id={}): {:?}", item.get_id(), e);
-            } else { total_migrated += 1; }
-        }
-        for item in notes { 
-            if let Err(e) = loro.upsert_record_no_save("school_notes", &item) {
-                println!("[Migration] Notes error (id={}): {:?}", item.get_id(), e);
-            } else { total_migrated += 1; }
-        }
-        for item in grades { 
-            if let Err(e) = loro.upsert_record_no_save("school_grades", &item) {
-                println!("[Migration] Grades error (id={}): {:?}", item.get_id(), e);
-            } else { total_migrated += 1; }
-        }
-        for item in swims { 
-            if let Err(e) = loro.upsert_record_no_save("swim_sessions", &item) {
-                println!("[Migration] Swims error (id={}): {:?}", item.get_id(), e);
-            } else { total_migrated += 1; }
-        }
-        for item in galas { 
-            if let Err(e) = loro.upsert_record_no_save("swim_galas", &item) {
-                println!("[Migration] Galas error (id={}): {:?}", item.get_id(), e);
-            } else { total_migrated += 1; }
-        }
-        for item in qts { 
-            if let Err(e) = loro.upsert_record_no_save("qualifying_times", &item) {
-                println!("[Migration] QTs error (id={}): {:?}", item.get_id(), e);
-            } else { total_migrated += 1; }
-        }
-        for item in flashcards { 
-            if let Err(e) = loro.upsert_record_no_save("flashcards", &item) {
-                println!("[Migration] Flashcards error (id={}): {:?}", item.get_id(), e);
-            } else { total_migrated += 1; }
-        }
+        let tasks_v: Vec<serde_json::Value> = tasks.into_iter().map(|it| serde_json::to_value(it).unwrap()).collect();
+        let notes_v: Vec<serde_json::Value> = notes.into_iter().map(|it| serde_json::to_value(it).unwrap()).collect();
+        let grades_v: Vec<serde_json::Value> = grades.into_iter().map(|it| serde_json::to_value(it).unwrap()).collect();
+        let swims_v: Vec<serde_json::Value> = swims.into_iter().map(|it| serde_json::to_value(it).unwrap()).collect();
+        let galas_v: Vec<serde_json::Value> = galas.into_iter().map(|it| serde_json::to_value(it).unwrap()).collect();
+        let qts_v: Vec<serde_json::Value> = qts.into_iter().map(|it| serde_json::to_value(it).unwrap()).collect();
+        let flashcards_v: Vec<serde_json::Value> = flashcards.into_iter().map(|it| serde_json::to_value(it).unwrap()).collect();
 
+        let collections = vec![
+            ("tasks", tasks_v),
+            ("school_notes", notes_v),
+            ("school_grades", grades_v),
+            ("swim_sessions", swims_v),
+            ("swim_galas", galas_v),
+            ("qualifying_times", qts_v),
+            ("flashcards", flashcards_v),
+        ];
+
+        for (coll_name, items) in collections {
+            for item in items {
+                if let Err(e) = loro.upsert_value_no_save(coll_name, item) {
+                    println!("[Migration] {} error: {:?}", coll_name, e);
+                } else {
+                    total_migrated += 1;
+                    batch_count += 1;
+                }
+
+                if batch_count >= 5 {
+                    let _ = loro.save();
+                    drop(loro); 
+                    
+                    let _ = Self::sync_loro(&self.client, &self.loro, &self.last_pushed_vv, &self.last_pulled_id, handle, &self.sync_state_path).await;
+                    
+                    loro = self.loro.lock().await; 
+                    batch_count = 0;
+                }
+            }
+            println!("[Migration] Finished collection: {}", coll_name);
+        }
         loro.save()?;
 
         if total_migrated > 0 {
@@ -219,9 +246,10 @@ impl TrailbaseService {
             // We no longer update last_pushed_vv here. 
             // We want the background sync loop to see these new items and push them to sync_updates.
             let _ = handle.emit("data-changed", ());
+            println!("[Migration] Migration complete. Total items migrated: {}", total_migrated);
         }
+        drop(loro);
 
-        println!("[Migration] Migration complete. Total items migrated: {}", total_migrated);
         Ok(())
     }
 
@@ -241,6 +269,7 @@ impl TrailbaseService {
         let is_offline_clone = self.is_offline.clone();
         let last_pushed_vv = self.last_pushed_vv.clone();
         let last_pulled_id = self.last_pulled_id.clone();
+        let sync_state_path_clone = self.sync_state_path.clone();
         let username = "study@example.com".to_string();
         let password = "study1234".to_string();
 
@@ -261,7 +290,7 @@ impl TrailbaseService {
                         let _ = handle.emit("connection-status", false); 
                         
                         let _ = handle.emit("sync-status", "syncing");
-                        let _ = Self::sync_loro(&client_clone, &loro_clone, &last_pushed_vv, &last_pulled_id, &handle).await;
+                        let _ = Self::sync_loro(&client_clone, &loro_clone, &last_pushed_vv, &last_pulled_id, &handle, &sync_state_path_clone).await;
                         let _ = handle.emit("sync-status", "idle");
                     }
                 } else {
@@ -277,7 +306,7 @@ impl TrailbaseService {
                         offline_start_time = std::time::Instant::now(); 
                         let _ = handle.emit("connection-status", true);
                     } else {
-                        let _ = Self::sync_loro(&client_clone, &loro_clone, &last_pushed_vv, &last_pulled_id, &handle).await;
+                        let _ = Self::sync_loro(&client_clone, &loro_clone, &last_pushed_vv, &last_pulled_id, &handle, &sync_state_path_clone).await;
                     }
                 }
 
@@ -291,7 +320,8 @@ impl TrailbaseService {
         loro: &Arc<Mutex<LoroManager>>, 
         last_pushed_vv: &Arc<Mutex<VersionVector>>,
         last_pulled_id: &Arc<Mutex<Option<String>>>,
-        handle: &AppHandle
+        handle: &AppHandle,
+        sync_state_path: &std::path::PathBuf
     ) -> Result<()> {
         // 1. Pull new updates
         let mut last_id = last_pulled_id.lock().await;
@@ -302,44 +332,49 @@ impl TrailbaseService {
         }
 
         let resp = client.records("sync_updates").list::<serde_json::Value>(args).await;
-        if let Ok(records) = resp {
-            let mut imported = false;
-            for rec in records.records {
-                let data_val = rec.get("data").unwrap_or(&serde_json::Value::Null);
-                println!("[Sync] Data field value: {:?}", data_val);
-                
-                let data = match data_val {
-                    serde_json::Value::String(s) => base64_or_hex_decode(s),
-                    serde_json::Value::Array(arr) => arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect(),
-                    _ => Vec::new(),
-                };
-                let peer_id = rec.get("peer_id").and_then(|v| v.as_str()).unwrap_or("");
-                
-                let current_peer_id = {
-                    let l = loro.lock().await;
-                    format!("p_{}", l.peer_id())
-                };
+        match resp {
+            Ok(records) => {
+                let mut imported = false;
+                for rec in records.records {
+                    let data_val = rec.get("data").unwrap_or(&serde_json::Value::Null);
+                    
+                    let data = match data_val {
+                        serde_json::Value::String(s) => base64_or_hex_decode(s),
+                        serde_json::Value::Array(arr) => arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect(),
+                        _ => Vec::new(),
+                    };
+                    let peer_id = rec.get("peer_id").and_then(|v| v.as_str()).unwrap_or("");
+                    
+                    let current_peer_id = {
+                        let l = loro.lock().await;
+                        format!("p_{}", l.peer_id())
+                    };
 
-                println!("[Sync] Row peer_id: '{}', Current peer_id: '{}', Data len: {}", peer_id, current_peer_id, data.len());
-
-                if peer_id != current_peer_id && !data.is_empty() {
-                    let l = loro.lock().await;
-                    if let Err(e) = l.import_updates(&data) {
-                        println!("[Sync] Error importing update: {:?}", e);
-                    } else {
-                        println!("[Sync] Successfully imported data from peer {}", peer_id);
-                        imported = true;
+                    if peer_id != current_peer_id && !data.is_empty() {
+                        let l = loro.lock().await;
+                        if let Err(e) = l.import_updates(&data) {
+                            println!("[Sync] Error importing update: {:?}", e);
+                        } else {
+                            imported = true;
+                        }
                     }
-                } else if peer_id == current_peer_id {
-                    println!("[Sync] Skipping own update from peer {}", peer_id);
+                    
+                    if let Some(id_str) = rec.get("id").and_then(|v| v.as_str()) {
+                        *last_id = Some(id_str.to_string());
+                    }
                 }
-                
-                if let Some(id_str) = rec.get("id").and_then(|v| v.as_str()) {
-                    *last_id = Some(id_str.to_string());
+                if imported {
+                    // IMPORTANT: After importing remote updates, we MUST update our last_pushed_vv
+                    // to the new state, otherwise we will re-push the same updates back to the server.
+                    let mut last_vv = last_pushed_vv.lock().await;
+                    let l = loro.lock().await;
+                    *last_vv = l.get_vv();
+                    let _ = Self::save_sync_state(&*last_vv, &*last_id, sync_state_path);
+                    let _ = handle.emit("data-changed", ());
                 }
-            }
-            if imported {
-                let _ = handle.emit("data-changed", ());
+            },
+            Err(e) => {
+                println!("[Sync] Pull: list failed: {:?}", e);
             }
         }
 
@@ -370,11 +405,18 @@ impl TrailbaseService {
                     .with_pagination(Pagination::new().with_limit(1))
                     .with_order(["-sequence_number"]);
                 
-                if let Ok(resp) = client.records("sync_updates").list::<serde_json::Value>(args).await {
-                    if let Some(record) = resp.records.first() {
-                        max_seq = record.get("sequence_number")
-                            .and_then(|v| v.as_i64())
-                            .unwrap_or(0);
+                let resp = client.records("sync_updates").list::<serde_json::Value>(args).await;
+                match resp {
+                    Ok(records) => {
+                        println!("[Sync] Push: list returned {} records for max_seq check", records.records.len());
+                        if let Some(record) = records.records.first() {
+                            max_seq = record.get("sequence_number")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+                        }
+                    },
+                    Err(e) => {
+                        println!("[Sync] Push: list failed: {:?}", e);
                     }
                 }
 
@@ -383,20 +425,21 @@ impl TrailbaseService {
                 use hex;
                 let hex_data = hex::encode(&data);
 
+                let target_seq = max_seq + 1;
+
                 let payload = serde_json::json!({
                     "peer_id": format!("p_{}", peer_id),
                     "data": hex_data,
-                    "sequence_number": max_seq + 1,
+                    "sequence_number": target_seq,
                     "created_at": now,
                 });
-                
-                println!("[Sync] Pushing update: seq={}, size={} bytes (Hex)", max_seq + 1, data.len());
-                println!("[Sync] Debug Payload: {}", serde_json::to_string(&payload).unwrap_or_default());
                 
                 if let Err(e) = client.records("sync_updates").create(&payload).await {
                     println!("[Sync] Error pushing update: {:?}", e);
                 } else {
+                    println!("[Sync] Successfully pushed update: seq={}", target_seq);
                     *last_vv = new_vv;
+                    let _ = Self::save_sync_state(&*last_vv, &*last_id, sync_state_path);
                 }
             }
         }
@@ -486,7 +529,17 @@ impl TrailbaseService {
             return Err(anyhow!("Cannot refresh while offline"));
         }
         // Force a sync
-        Self::sync_loro(&self.client, &self.loro, &self.last_pushed_vv, &self.last_pulled_id, handle).await?;
+        Self::sync_loro(&self.client, &self.loro, &self.last_pushed_vv, &self.last_pulled_id, handle, &self.sync_state_path).await?;
+        Ok(())
+    }
+
+    fn save_sync_state(vv: &VersionVector, last_id: &Option<String>, path: &std::path::PathBuf) -> Result<()> {
+        let state = SyncState {
+            last_pushed_vv: LoroManager::encode_vv(vv),
+            last_pulled_id: last_id.clone(),
+        };
+        let content = serde_json::to_string(&state)?;
+        fs::write(path, content)?;
         Ok(())
     }
 }
