@@ -1095,6 +1095,11 @@ async function init() {
     else if (status === 'syncing') console.log("[Sync] Background sync in progress...");
   });
 
+  Api.onDataChanged(() => {
+    console.log("[Data] Remote changes detected, refreshing...");
+    fetchData();
+  });
+
   // Initial Fetch
   await fetchData();
 }

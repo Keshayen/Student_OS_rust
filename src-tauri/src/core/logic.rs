@@ -13,6 +13,7 @@ pub enum ReviewQuality {
 pub struct SpacedRepetitionService;
 
 impl SpacedRepetitionService {
+    #[allow(dead_code)]
     pub fn process_review(card: &SchoolFlashcard, quality: ReviewQuality) -> SchoolFlashcard {
         let q = match quality {
             ReviewQuality::Again => 0,

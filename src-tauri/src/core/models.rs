@@ -56,6 +56,8 @@ pub struct Task {
     pub reminder_hour: Option<i32>,
     #[serde(rename = "reminderMinute")]
     pub reminder_minute: Option<i32>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
 }
 
 impl Identifiable for Task {
@@ -74,6 +76,8 @@ pub struct SchoolNote {
     pub content: String,
     #[serde(rename = "createdAt")]
     pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
 }
 
 impl Identifiable for SchoolNote {
@@ -105,6 +109,8 @@ pub struct SchoolFlashcard {
     pub firestore_id: Option<String>,
     #[serde(rename = "imageUrl")]
     pub image_url: Option<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
 }
 
 impl Identifiable for SchoolFlashcard {
@@ -140,6 +146,8 @@ pub struct SchoolGrade {
     pub date: String,
     #[serde(rename = "schoolYear")]
     pub school_year: i32,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
 }
 
 impl Identifiable for SchoolGrade {
@@ -172,6 +180,8 @@ pub struct SwimSession {
     #[serde(rename = "caloriesBurned")]
     pub calories_burned: Option<f64>,
     pub location: Option<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
 }
 
 impl Identifiable for SwimSession {
@@ -190,6 +200,8 @@ pub struct SwimGala {
     pub location: String,
     pub course: String,
     pub events: Option<String>, // JSON string of events
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
 }
 
 impl Identifiable for SwimGala {
@@ -211,6 +223,8 @@ pub struct QualifyingTime {
     pub course: String,
     #[serde(rename = "isAchieved", with = "bool_as_int")]
     pub is_achieved: bool,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
 }
 
 impl Identifiable for QualifyingTime {
