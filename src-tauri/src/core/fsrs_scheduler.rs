@@ -66,16 +66,12 @@ pub struct NextStatesResult {
 // ─────────────────────────────────────────────
 
 fn init_stability(rating: Rating, params: &[f32; 19]) -> f32 {
-    let r = rating.val();
-    let w = params;
-    w[0] * (r - 1.0).exp().max(0.1)
-        .max(0.1) // clamp
-        * match rating {
-            Rating::Again => 1.0,
-            Rating::Hard => w[1],
-            Rating::Good => w[2],
-            Rating::Easy => w[3],
-        }
+    match rating {
+        Rating::Again => params[0].max(0.1),
+        Rating::Hard => params[1].max(0.1),
+        Rating::Good => params[2].max(0.1),
+        Rating::Easy => params[3].max(0.1),
+    }
 }
 
 fn init_difficulty(rating: Rating, params: &[f32; 19]) -> f32 {
@@ -88,11 +84,16 @@ fn clamp_difficulty(d: f32) -> f32 {
     d.clamp(1.0, 10.0)
 }
 
+fn linear_damping(delta_d: f32, old_d: f32) -> f32 {
+    (10.0 - old_d) * (delta_d / 9.0)
+}
+
 fn next_difficulty(d: f32, rating: Rating, params: &[f32; 19]) -> f32 {
     let w = params;
-    let delta = -(w[6] * (rating.val() - 3.0));
-    let d_new = w[7] * init_difficulty(Rating::Good, params) + (1.0 - w[7]) * (d + delta);
-    clamp_difficulty(d_new)
+    let delta_d = -(w[6] * (rating.val() - 3.0));
+    let next_d = d + linear_damping(delta_d, d);
+    let mean_reversion = w[7] * (init_difficulty(Rating::Easy, params) - next_d) + next_d;
+    clamp_difficulty(mean_reversion)
 }
 
 fn power_forgetting_curve(elapsed_days: f32, stability: f32) -> f32 {
@@ -128,8 +129,13 @@ fn next_forget_stability(
 ) -> f32 {
     let w = params;
     let new_s = w[11] * d.powf(-w[12]) * ((s + 1.0).powf(w[13]) - 1.0) * ((1.0 - r) * w[14]).exp();
-    // minimum stability bounds (S_MIN is 0.01 in fsrs)
-    new_s.max(0.01).min(36500.0)
+    
+    // In fsrs-rs: let new_s_min = last_s / (w[17] * w[18]).exp();
+    // Then it takes the min of new_s and new_s_min (because new_s_min is the UPPER limit on stability drops)
+    let s_drop_limit = s / (w[17] * w[18]).exp();
+    let capped_s = new_s.min(s_drop_limit);
+    
+    capped_s.max(0.01).min(36500.0)
 }
 
 fn next_interval(stability: f32, desired_retention: f32) -> f32 {
@@ -476,5 +482,64 @@ mod tests {
     fn test_retrievability_new_card() {
         let card = new_card();
         assert_eq!(current_retrievability(&card), 0.0);
+    }
+
+    #[cfg(feature = "fsrs-ml")]
+    #[test]
+    fn test_simulation_comparison() {
+        println!("--- FSRS SIMULATION COMPARISON ---");
+        
+        let mut native_card = new_card();
+        let mut crate_card = new_card();
+        
+        let ratings = vec![
+            (Rating::Good, 0),    // Initial review
+            (Rating::Good, 1),    // 1 day later
+            (Rating::Hard, 4),    // 4 days later
+            (Rating::Good, 8),    // 8 days later
+            (Rating::Easy, 20),   // 20 days later
+            (Rating::Again, 50),  // 50 days later (Forgot!)
+            (Rating::Good, 51),   // Re-learn next day
+        ];
+        
+        let mut current_day = 0;
+        
+        for (i, (rating, day_offset)) in ratings.into_iter().enumerate() {
+            current_day = day_offset;
+            
+            // Advance time for both cards
+            if i > 0 {
+                let past_date = Utc::now() - chrono::Duration::days(current_day as i64);
+                native_card.last_review = Some(past_date.to_rfc3339());
+                crate_card.last_review = Some(past_date.to_rfc3339());
+            }
+
+            let n_res = review_card_native(&native_card, rating, 0.9);
+            let c_res = review_card_fsrs_crate(&crate_card, rating, 0.9).expect("Crate failed");
+            
+            println!("Review {}: Day {} | Rating {:?}", i + 1, current_day, rating);
+            println!("  Native -> S: {:.4}, D: {:.4}, I: {:.2}d", n_res.stability, n_res.difficulty, n_res.interval);
+            println!("  Crate  -> S: {:.4}, D: {:.4}, I: {:.2}d", c_res.stability, c_res.difficulty, c_res.interval);
+            
+            // Allow small floats error margin
+            let diff_s = (n_res.stability - c_res.stability).abs();
+            let diff_d = (n_res.difficulty - c_res.difficulty).abs();
+            
+            assert!(diff_s < 0.1, "Stability divergence at review {}: Native S={:.4}, Crate S={:.4}", i+1, n_res.stability, c_res.stability);
+            assert!(diff_d < 0.1, "Difficulty divergence at review {}: Native D={:.4}, Crate D={:.4}", i+1, n_res.difficulty, c_res.difficulty);
+            
+            // Update cards for next round
+            native_card.stability = n_res.stability;
+            native_card.difficulty = n_res.difficulty;
+            native_card.interval = n_res.interval;
+            native_card.lapses = n_res.lapses;
+            
+            crate_card.stability = c_res.stability;
+            crate_card.difficulty = c_res.difficulty;
+            crate_card.interval = c_res.interval;
+            crate_card.lapses = c_res.lapses;
+        }
+        
+        println!("--- SIMULATION COMPLETE ---");
     }
 }

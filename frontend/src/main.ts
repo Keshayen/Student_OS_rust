@@ -440,10 +440,10 @@ async function init() {
                     ${f.answer}
                   </div>
                   <div class="hidden bg-slate-900 border-t border-violet-500/20 p-2 flex gap-2">
-                      <button class="flex-1 text-[10px] py-2 bg-red-900/30 text-red-400 hover:bg-red-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-id="${f.id}" data-rating="1">Again</button>
-                      <button class="flex-1 text-[10px] py-2 bg-amber-900/30 text-amber-400 hover:bg-amber-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-id="${f.id}" data-rating="2">Hard</button>
-                      <button class="flex-1 text-[10px] py-2 bg-emerald-900/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-id="${f.id}" data-rating="3">Good</button>
-                      <button class="flex-1 text-[10px] py-2 bg-blue-900/30 text-blue-400 hover:bg-blue-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-id="${f.id}" data-rating="4">Easy</button>
+                      <button class="flex-1 text-[10px] py-2 bg-red-900/30 text-red-400 hover:bg-red-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-col="flashcards" data-id="${f.id}" data-rating="1">Again</button>
+                      <button class="flex-1 text-[10px] py-2 bg-amber-900/30 text-amber-400 hover:bg-amber-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-col="flashcards" data-id="${f.id}" data-rating="2">Hard</button>
+                      <button class="flex-1 text-[10px] py-2 bg-emerald-900/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-col="flashcards" data-id="${f.id}" data-rating="3">Good</button>
+                      <button class="flex-1 text-[10px] py-2 bg-blue-900/30 text-blue-400 hover:bg-blue-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-col="flashcards" data-id="${f.id}" data-rating="4">Easy</button>
                   </div>
               </div>
             </div>

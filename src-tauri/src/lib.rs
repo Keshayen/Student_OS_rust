@@ -203,7 +203,21 @@ async fn review_flashcard(
 
     let r = Rating::from_u8(rating).ok_or_else(|| format!("Invalid rating: {}", rating))?;
     let retention = desired_retention.unwrap_or(0.9);
+    
+    #[cfg(feature = "fsrs-ml")]
+    let algorithm_source = "Crate (Machine-Learning)";
+    #[cfg(not(feature = "fsrs-ml"))]
+    let algorithm_source = "Native (Rust Math Fallback)";
+
+    println!("[FSRS] Using Algorithm: {}", algorithm_source);
+    println!("[FSRS] Incoming Review: Card ID: {}, Rating: {:?} (u8: {})", card_id, r, rating);
+    println!("[FSRS] Previous State: Stability: {:.2}, Difficulty: {:.2}, Interval: {:.2}d", 
+             card.stability, card.difficulty, card.interval);
+
     let output = fsrs_scheduler::review_card(card, r, retention);
+
+    println!("[FSRS] Computed State: Stability: {:.2}, Difficulty: {:.2}, Interval: {:.2}d, Next Due: {}", 
+             output.stability, output.difficulty, output.interval, output.due);
 
     // Build updated card
     let mut updated = card.clone();
