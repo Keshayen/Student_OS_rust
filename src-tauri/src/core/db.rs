@@ -408,34 +408,32 @@ impl TrailbaseService {
                 let resp = client.records("sync_updates").list::<serde_json::Value>(args).await;
                 match resp {
                     Ok(records) => {
-                        println!("[Sync] Push: list returned {} records for max_seq check", records.records.len());
-                        if let Some(record) = records.records.first() {
-                            max_seq = record.get("sequence_number")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0);
+                        if let Some(first) = records.records.first() {
+                            max_seq = first.get("sequence_number").and_then(|v| v.as_i64()).unwrap_or(0);
                         }
-                    },
+                    }
                     Err(e) => {
-                        println!("[Sync] Push: list failed: {:?}", e);
+                        println!("[Sync] Push: list check failed: {:?}", e);
                     }
                 }
 
                 let now = chrono::Utc::now().timestamp();
-                
-                use hex;
-                let hex_data = hex::encode(&data);
-
                 let target_seq = max_seq + 1;
 
+                // Trying raw byte array for the BLOB column instead of HEX string
                 let payload = serde_json::json!({
                     "peer_id": format!("p_{}", peer_id),
-                    "data": hex_data,
+                    "data": data, // serde_json will serialize Vec<u8> as an array of numbers [..., ..., ...]
                     "sequence_number": target_seq,
                     "created_at": now,
                 });
                 
                 if let Err(e) = client.records("sync_updates").create(&payload).await {
-                    println!("[Sync] Error pushing update: {:?}", e);
+                    let err_msg = format!("{:?}", e);
+                    println!("[Sync] Error pushing update: {}", err_msg);
+                    if err_msg.contains("unique") || err_msg.contains("duplicate") {
+                        println!("[Sync] Conflict detected on sequence_number {}!", target_seq);
+                    }
                 } else {
                     println!("[Sync] Successfully pushed update: seq={}", target_seq);
                     *last_vv = new_vv;
