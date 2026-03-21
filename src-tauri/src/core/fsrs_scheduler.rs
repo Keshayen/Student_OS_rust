@@ -369,6 +369,7 @@ fn review_card_fsrs_crate(
 
 /// Retrieve the current retrievability (0.0 to 1.0) of a card.
 /// Returns 0.0 for new cards (not yet reviewed).
+#[allow(dead_code)]
 pub fn current_retrievability(card: &SchoolFlashcard) -> f32 {
     if is_new_card(card) {
         return 0.0;
@@ -502,10 +503,8 @@ mod tests {
             (Rating::Good, 51),   // Re-learn next day
         ];
         
-        let mut current_day = 0;
-        
         for (i, (rating, day_offset)) in ratings.into_iter().enumerate() {
-            current_day = day_offset;
+            let current_day = day_offset;
             
             // Advance time for both cards
             if i > 0 {

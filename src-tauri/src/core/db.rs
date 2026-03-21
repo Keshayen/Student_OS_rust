@@ -103,7 +103,7 @@ impl TrailbaseService {
     }
 
     async fn migrate_loro_schema(&self) {
-        let mut loro = self.loro.lock().await;
+        let loro = self.loro.lock().await;
         let records: Vec<serde_json::Value> = loro.get_records("flashcards").unwrap_or_default();
         let mut updated = false;
         for mut rec in records {

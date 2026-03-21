@@ -196,6 +196,30 @@ async function init() {
   let deleteId: string | null = null;
   let deleteCol: string | null = null;
 
+  // -- FSRS UI Helper --
+  (window as any).loadFSRSStates = async (id: string) => {
+      try {
+          const res = await Api.getNextReviewStates(id, 0.9);
+          const container = document.querySelector(`[data-flashcard-container="${id}"]`);
+          if (!container) return;
+          if (container.hasAttribute('data-fsrs-loaded')) return;
+          container.setAttribute('data-fsrs-loaded', 'true');
+          
+          const formatDays = (d: number) => d < 1 ? '<1d' : Math.round(d) + 'd';
+          
+          const setBtnText = (rating: number, val: number) => {
+              const btn = container.querySelector(`[data-rating="${rating}"]`) as HTMLElement;
+              if (btn && btn.innerText.indexOf('(') === -1) {
+                  btn.innerText += ` (${formatDays(val)})`;
+              }
+          };
+          setBtnText(1, res.again);
+          setBtnText(2, res.hard);
+          setBtnText(3, res.good);
+          setBtnText(4, res.easy);
+      } catch(e) { console.error("Failed to load FSRS states", e); }
+  };
+
   // -- Render Logic --
 
   let editingRecordId: string | null = null;
@@ -435,7 +459,7 @@ async function init() {
               
               <!-- Review UI -->
               <div class="mt-4 border border-violet-500/30 rounded-xl overflow-hidden" data-flashcard-container="${f.id}">
-                  <div class="p-3 bg-violet-500/10 text-sm text-slate-300 blur-sm transition-all cursor-pointer hover:blur-none" onclick="this.classList.remove('blur-sm'); this.nextElementSibling.classList.remove('hidden');" title="Click to reveal">
+                  <div class="p-3 bg-violet-500/10 text-sm text-slate-300 blur-sm transition-all cursor-pointer hover:blur-none" onclick="this.classList.remove('blur-sm'); this.nextElementSibling.classList.remove('hidden'); if(window.loadFSRSStates) window.loadFSRSStates('${f.id}');" title="Click to reveal">
                     <span class="text-[10px] block font-black text-violet-400 mb-1 uppercase tracking-tighter">Answer</span>
                     ${f.answer}
                   </div>
