@@ -1,5 +1,6 @@
 use crate::core::db::TrailbaseService;
 use crate::core::models::{Task, SchoolNote, SchoolFlashcard, SchoolGrade, SwimGala, SwimSession, QualifyingTime};
+use crate::core::fsrs_scheduler::{self, Rating};
 use tauri::{State, Manager};
 use serde_json::Value;
 use tokio::sync::Mutex; 
@@ -182,6 +183,80 @@ async fn get_connection_status(state: State<'_, AppState>) -> Result<bool, Strin
     Ok(trailbase.is_offline.load(Ordering::Relaxed))
 }
 
+#[tauri::command]
+async fn review_flashcard(
+    state: State<'_, AppState>,
+    card_id: String,
+    rating: u8,
+    desired_retention: Option<f32>,
+) -> Result<Value, String> {
+    let trailbase = state.trailbase_service.lock().await;
+    let flashcards: Vec<SchoolFlashcard> = trailbase
+        .get_flashcards()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let card = flashcards
+        .iter()
+        .find(|c| c.id == card_id)
+        .ok_or_else(|| format!("Flashcard not found: {}", card_id))?;
+
+    let r = Rating::from_u8(rating).ok_or_else(|| format!("Invalid rating: {}", rating))?;
+    let retention = desired_retention.unwrap_or(0.9);
+    
+    #[cfg(feature = "fsrs-ml")]
+    let algorithm_source = "Crate (Machine-Learning)";
+    #[cfg(not(feature = "fsrs-ml"))]
+    let algorithm_source = "Native (Rust Math Fallback)";
+
+    println!("[FSRS] Using Algorithm: {}", algorithm_source);
+    println!("[FSRS] Incoming Review: Card ID: {}, Rating: {:?} (u8: {})", card_id, r, rating);
+    println!("[FSRS] Previous State: Stability: {:.2}, Difficulty: {:.2}, Interval: {:.2}d", 
+             card.stability, card.difficulty, card.interval);
+
+    let output = fsrs_scheduler::review_card(card, r, retention);
+
+    println!("[FSRS] Computed State: Stability: {:.2}, Difficulty: {:.2}, Interval: {:.2}d, Next Due: {}", 
+             output.stability, output.difficulty, output.interval, output.due);
+
+    // Build updated card
+    let mut updated = card.clone();
+    updated.stability = output.stability;
+    updated.difficulty = output.difficulty;
+    updated.interval = output.interval;
+    updated.due = output.due;
+    updated.lapses = output.lapses;
+    updated.last_review = Some(output.last_review);
+
+    let updated_record = trailbase
+        .update_record("flashcards", updated)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(updated_record).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_next_review_states(
+    state: State<'_, AppState>,
+    card_id: String,
+    desired_retention: Option<f32>,
+) -> Result<Value, String> {
+    let trailbase = state.trailbase_service.lock().await;
+    let flashcards: Vec<SchoolFlashcard> = trailbase
+        .get_flashcards()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let card = flashcards
+        .iter()
+        .find(|c| c.id == card_id)
+        .ok_or_else(|| format!("Flashcard not found: {}", card_id))?;
+
+    let retention = desired_retention.unwrap_or(0.9);
+    let states = fsrs_scheduler::get_next_states(card, retention);
+    serde_json::to_value(states).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -203,7 +278,9 @@ pub fn run() {
                 delete_record_command,
                 nuke_database,
                 refresh_data_command,
-                get_connection_status
+                get_connection_status,
+                review_flashcard,
+                get_next_review_states
             ])
             .build(tauri::generate_context!())
     }).expect("Failed to build tauri application");

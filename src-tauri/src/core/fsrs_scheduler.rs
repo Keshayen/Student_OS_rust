@@ -503,10 +503,8 @@ mod tests {
             (Rating::Good, 51),   // Re-learn next day
         ];
         
-        let mut current_day = 0;
-        
         for (i, (rating, day_offset)) in ratings.into_iter().enumerate() {
-            current_day = day_offset;
+            let current_day = day_offset;
             
             // Advance time for both cards
             if i > 0 {

@@ -92,21 +92,30 @@ pub struct SchoolFlashcard {
     #[serde(rename = "userId")]
     pub user_id: String,
     pub subject: String,
-    #[serde(rename = "noteId", deserialize_with = "deserialize_id")]
-    pub note_id: String,
     pub question: String,
     pub answer: String,
-    #[serde(rename = "srs_interval", default)]
-    pub interval: i32,
-    #[serde(rename = "easeFactor", alias = "ease_factor", deserialize_with = "deserialize_string_flexible", default = "default_ease")]
-    pub ease_factor: String,
-    pub repetitions: i32,
-    #[serde(rename = "nextReview")]
-    pub next_review: String,
+
+    // FSRS scheduling fields (mirrors fsrs::Card / fsrs::MemoryState)
+    #[serde(default = "default_stability")]
+    pub stability: f32,
+    #[serde(default = "default_difficulty")]
+    pub difficulty: f32,
+    #[serde(default = "default_due")]
+    pub due: String,
+    #[serde(default)]
+    pub interval: f32,
+    #[serde(default)]
+    pub lapses: u32,
+    #[serde(rename = "lastReview")]
+    pub last_review: Option<String>,
+
+    // Organization
+    #[serde(rename = "linkedNoteIds")]
+    pub linked_note_ids: Option<serde_json::Value>,
+    pub tags: Option<serde_json::Value>,
+
     #[serde(rename = "createdAt", default = "default_timestamp")]
     pub created_at: String,
-    #[serde(rename = "firestoreId")]
-    pub firestore_id: Option<String>,
     #[serde(rename = "imageUrl")]
     pub image_url: Option<String>,
     #[serde(rename = "updatedAt")]
@@ -118,18 +127,10 @@ impl Identifiable for SchoolFlashcard {
     fn set_id(&mut self, id: String) { self.id = id; }
 }
 
-fn default_ease() -> String { "2.5".to_string() }
+fn default_stability() -> f32 { 0.0 }
+fn default_difficulty() -> f32 { 0.0 }
+fn default_due() -> String { chrono::Utc::now().to_rfc3339() }
 fn default_timestamp() -> String { chrono::Utc::now().to_rfc3339() }
-
-fn deserialize_string_flexible<'de, D>(deserializer: D) -> Result<String, D::Error>
-where D: Deserializer<'de> {
-    let v: serde_json::Value = Deserialize::deserialize(deserializer)?;
-    match v {
-        serde_json::Value::Number(n) => Ok(n.to_string()),
-        serde_json::Value::String(s) => Ok(s),
-        _ => Ok("2.5".to_string()),
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SchoolGrade {

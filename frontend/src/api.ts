@@ -40,19 +40,27 @@ export interface SchoolNote {
 }
 
 export interface SchoolFlashcard {
-    id: string;
-    userId: string;
-    subject: string;
-    noteId: string;
-    question: string;
-    answer: string;
-    srs_interval: number;
-    easeFactor: string;
-    repetitions: number;
-    nextReview: string;
-    createdAt: string;
-    firestoreId?: string | null;
-    imageUrl?: string | null;
+  id: string;
+  userId: string;
+  subject: string;
+  question: string;
+  answer: string;
+
+  // FSRS scheduling fields
+  stability: number;
+  difficulty: number;
+  due: string;
+  interval: number;
+  lapses: number;
+  lastReview?: string | null;
+
+  // Organization
+  linkedNoteIds?: string[] | null;
+  tags?: string[] | null;
+
+  createdAt: string;
+  imageUrl?: string | null;
+  updatedAt?: string | null;
 }
 
 export interface SchoolGrade {
@@ -128,6 +136,31 @@ export const Api = {
         return await invoke("update_record_command", {
             collection,
             recordJson: JSON.stringify(record)
+        });
+    },
+
+    async updateSyncConfig(config: { serverUrl: string; username: string; password?: string }): Promise<void> {
+        return await invoke('update_sync_config', { config });
+    },
+
+    // FSRS Flashcard Review Commands
+    async reviewFlashcard(cardId: string, rating: number, desiredRetention?: number): Promise<SchoolFlashcard> {
+        return await invoke('review_flashcard', {
+            cardId,
+            rating,
+            desiredRetention
+        });
+    },
+
+    async getNextReviewStates(cardId: string, desiredRetention?: number): Promise<{
+        again: number;
+        hard: number;
+        good: number;
+        easy: number;
+    }> {
+        return await invoke('get_next_review_states', {
+            cardId,
+            desiredRetention
         });
     },
 
