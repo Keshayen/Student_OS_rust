@@ -196,6 +196,30 @@ async function init() {
   let deleteId: string | null = null;
   let deleteCol: string | null = null;
 
+  // -- FSRS UI Helper --
+  (window as any).loadFSRSStates = async (id: string) => {
+      try {
+          const res = await Api.getNextReviewStates(id, 0.9);
+          const container = document.querySelector(`[data-flashcard-container="${id}"]`);
+          if (!container) return;
+          if (container.hasAttribute('data-fsrs-loaded')) return;
+          container.setAttribute('data-fsrs-loaded', 'true');
+          
+          const formatDays = (d: number) => d < 1 ? '<1d' : Math.round(d) + 'd';
+          
+          const setBtnText = (rating: number, val: number) => {
+              const btn = container.querySelector(`[data-rating="${rating}"]`) as HTMLElement;
+              if (btn && btn.innerText.indexOf('(') === -1) {
+                  btn.innerText += ` (${formatDays(val)})`;
+              }
+          };
+          setBtnText(1, res.again);
+          setBtnText(2, res.hard);
+          setBtnText(3, res.good);
+          setBtnText(4, res.easy);
+      } catch(e) { console.error("Failed to load FSRS states", e); }
+  };
+
   // -- Render Logic --
 
   let editingRecordId: string | null = null;
@@ -409,6 +433,15 @@ async function init() {
     // Flashcards
     state.flashcards.forEach(f => {
       if (matches(f.question, f.answer + f.subject)) {
+        // Calculate days relative to due date
+        let dueStr = '';
+        try {
+            const dueDays = Math.round((new Date(f.due).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            if (dueDays < 0) dueStr = `<span class="text-red-400 font-bold">Overdue ${Math.abs(dueDays)}d</span>`;
+            else if (dueDays === 0) dueStr = `<span class="text-amber-400 font-bold">Due Today</span>`;
+            else dueStr = `Due in ${dueDays}d`;
+        } catch (e) { dueStr = 'Unknown due'; }
+
         items.push({
           weight: 5,
           title: f.question,
@@ -418,12 +451,24 @@ async function init() {
               ${getActionBtns(f.id, 'flashcards')}
               <div class="flex justify-between items-start mb-2">
                 <span class="text-[10px] uppercase tracking-widest font-black text-violet-400">Flashcard • ${f.subject}</span>
-                <span class="text-[10px] text-slate-500 pr-20 md:pr-14">Interval: ${f.srs_interval}d</span>
+                <span class="text-[10px] text-slate-500 pr-20 md:pr-14">
+                   Int: ${Math.round(f.interval)}d • ${dueStr}
+                </span>
               </div>
               <h3 class="text-lg font-bold text-slate-100 italic">"${f.question}"</h3>
-              <div class="mt-4 p-3 pr-16 bg-violet-500/10 border border-violet-500/20 rounded-xl text-sm text-slate-300 blur-sm hover:blur-none transition-all cursor-help">
-                <span class="text-[10px] block font-black text-violet-400 mb-1 uppercase tracking-tighter">Click to reveal answer</span>
-                ${f.answer}
+              
+              <!-- Review UI -->
+              <div class="mt-4 border border-violet-500/30 rounded-xl overflow-hidden" data-flashcard-container="${f.id}">
+                  <div class="p-3 bg-violet-500/10 text-sm text-slate-300 blur-sm transition-all cursor-pointer hover:blur-none" onclick="this.classList.remove('blur-sm'); this.nextElementSibling.classList.remove('hidden'); if(window.loadFSRSStates) window.loadFSRSStates('${f.id}');" title="Click to reveal">
+                    <span class="text-[10px] block font-black text-violet-400 mb-1 uppercase tracking-tighter">Answer</span>
+                    ${f.answer}
+                  </div>
+                  <div class="hidden bg-slate-900 border-t border-violet-500/20 p-2 flex gap-2">
+                      <button class="flex-1 text-[10px] py-2 bg-red-900/30 text-red-400 hover:bg-red-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-col="flashcards" data-id="${f.id}" data-rating="1">Again</button>
+                      <button class="flex-1 text-[10px] py-2 bg-amber-900/30 text-amber-400 hover:bg-amber-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-col="flashcards" data-id="${f.id}" data-rating="2">Hard</button>
+                      <button class="flex-1 text-[10px] py-2 bg-emerald-900/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-col="flashcards" data-id="${f.id}" data-rating="3">Good</button>
+                      <button class="flex-1 text-[10px] py-2 bg-blue-900/30 text-blue-400 hover:bg-blue-500 hover:text-white rounded-lg font-bold transition-all uppercase" data-action="review" data-col="flashcards" data-id="${f.id}" data-rating="4">Easy</button>
+                  </div>
               </div>
             </div>
           `
@@ -652,9 +697,10 @@ async function init() {
     } else if (type === 'flashcards') {
         const subOptions = SUBJECTS.map(s => `<option value="${s}">${s}</option>`).join('');
         const currentSub = item ? item.subject : SUBJECTS[0];
+        const itemNoteId = item?.linkedNoteIds?.[0] || "";
         const noteOptions = state.notes
             .filter(n => n.subject === currentSub)
-            .map(n => `<option value="${n.id}" ${item && item.noteId === n.id ? 'selected' : ''}>${n.title}</option>`)
+            .map(n => `<option value="${n.id}" ${itemNoteId === n.id ? 'selected' : ''}>${n.title}</option>`)
             .join('');
 
         console.log(`[UI] Populating Flashcard Modal: ${state.notes.length} total notes.`);
@@ -806,26 +852,34 @@ async function init() {
             record.isAchieved = record.isAchieved || false;
         } else if (type === 'flashcards') {
             record.subject = (document.getElementById('entry-subject') as HTMLSelectElement).value;
-            record.noteId = (document.getElementById('entry-note-id') as HTMLSelectElement).value || "";
+            const noteIdStr = (document.getElementById('entry-note-id') as HTMLSelectElement).value;
+            if (noteIdStr) {
+                record.linkedNoteIds = [noteIdStr];
+            } else {
+                record.linkedNoteIds = null;
+            }
             record.question = (document.getElementById('entry-question') as HTMLTextAreaElement).value;
             record.answer = (document.getElementById('entry-answer') as HTMLTextAreaElement).value;
             
-            // Ensure correct types for SRS fields
-            record.srs_interval = Number(record.srs_interval || 0);
-            record.repetitions = Number(record.repetitions || 0);
-            record.easeFactor = String(record.easeFactor || record.ease_factor || "2.5");
-            
+            // FSRS Fields config
             if (!baseRecord) {
-                const now = new Date();
-                const ts = now.toISOString().replace('Z', '000');
-                record.nextReview = ts;
-                record.createdAt = ts;
-                record.firestoreId = null;
-                record.imageUrl = null;
+                record.stability = 0.0;
+                record.difficulty = 0.0;
+                record.interval = 0.0;
+                record.lapses = 0;
+                record.due = new Date().toISOString();
+                record.createdAt = new Date().toISOString();
             }
-            record.createdAt = record.createdAt || new Date().toISOString().replace('Z', '000');
+            // Remove old fields if they exist
+            delete record.noteId;
+            delete record.easeFactor;
+            delete record.repetitions;
+            delete record.nextReview;
+            delete record.srs_interval;
         }
+        record.createdAt = record.createdAt || new Date().toISOString().replace('Z', '000');
         
+
         saveBtn.disabled = true;
         saveBtn.innerText = editingRecordId ? "Updating..." : "Saving...";
         
@@ -874,13 +928,24 @@ async function init() {
        console.log(`[UI] Action: ${action}, ID: ${id}, Original Col: ${col}`);
        
        if (!id || !col) return;
-       
-       if (action === 'delete') {
+              if (action === 'delete') {
            deleteId = id;
            deleteCol = col;
            deleteItemTypeSpan.innerText = col.replace('school_', '').replace('_', ' ');
            deleteModal.classList.remove('hidden');
            deleteModal.classList.add('flex');
+           return;
+       } else if (action === 'review') {
+           const rating = parseInt(actionBtn.getAttribute('data-rating') || '1');
+           actionBtn.setAttribute('disabled', 'true');
+           try {
+               await Api.reviewFlashcard(id, rating, 0.9);
+               showToast("Card reviewed!", 'success');
+               await fetchData();
+           } catch (e) {
+               showToast("Review failed: " + e, 'error');
+               actionBtn.removeAttribute('disabled');
+           }
            return;
        } else if (action === 'edit') {
            editingRecordId = id;
