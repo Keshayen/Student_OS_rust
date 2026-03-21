@@ -75,7 +75,7 @@ impl TrailbaseService {
         
         println!("[System] Initialized in OFFLINE mode (Loro doc loaded)");
 
-        Ok(Self {
+        let service = Self {
             client,
             user_id: config.user_id.clone(),
             loro,
@@ -84,7 +84,11 @@ impl TrailbaseService {
             last_pushed_vv: Arc::new(Mutex::new(vv)),
             last_pulled_id: Arc::new(Mutex::new(last_id)),
             config,
-        })
+        };
+
+        service.migrate_loro_schema().await;
+
+        Ok(service)
     }
 
     async fn ensure_login(&self) -> Result<()> {
@@ -95,6 +99,43 @@ impl TrailbaseService {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(e)) => Err(anyhow!("Login failed: {:?}", e)),
             Err(_) => Err(anyhow!("Login timeout")),
+        }
+    }
+
+    async fn migrate_loro_schema(&self) {
+        let mut loro = self.loro.lock().await;
+        let records: Vec<serde_json::Value> = loro.get_records("flashcards").unwrap_or_default();
+        let mut updated = false;
+        for mut rec in records {
+            let mut changed = false;
+            if let Some(obj) = rec.as_object_mut() {
+                // Migrate noteId -> linkedNoteIds
+                if let Some(note_id) = obj.remove("noteId") {
+                    if note_id.is_string() {
+                        obj.insert("linkedNoteIds".to_string(), serde_json::json!(vec![note_id.as_str().unwrap()]));
+                        changed = true;
+                    }
+                }
+                // Migrate easeFactor, srs_interval, repetitions, nextReview -> FSRS defaults
+                if obj.remove("easeFactor").is_some() { changed = true; }
+                if obj.remove("srs_interval").is_some() { changed = true; }
+                if obj.remove("repetitions").is_some() { changed = true; }
+                if obj.remove("nextReview").is_some() { changed = true; }
+                if obj.remove("firestoreId").is_some() { changed = true; }
+                
+                if !obj.contains_key("stability") { obj.insert("stability".to_string(), serde_json::json!(0.0)); changed = true; }
+                if !obj.contains_key("difficulty") { obj.insert("difficulty".to_string(), serde_json::json!(0.0)); changed = true; }
+                if !obj.contains_key("interval") { obj.insert("interval".to_string(), serde_json::json!(0.0)); changed = true; }
+                if !obj.contains_key("lapses") { obj.insert("lapses".to_string(), serde_json::json!(0)); changed = true; }
+            }
+            if changed {
+                let _ = loro.upsert_value_no_save("flashcards", rec);
+                updated = true;
+            }
+        }
+        if updated {
+            let _ = loro.save();
+            println!("[Migration] Successfully migrated Loro flashcard schema to FSRS.");
         }
     }
 
@@ -208,7 +249,47 @@ impl TrailbaseService {
         let swims = fetch_and_log::<SwimSession>(client, "swim_sessions", user_id).await;
         let galas = fetch_and_log::<SwimGala>(client, "swim_galas", user_id).await;
         let qts = fetch_and_log::<QualifyingTime>(client, "qualifying_times", user_id).await;
-        let flashcards = fetch_and_log::<SchoolFlashcard>(client, "flashcards", user_id).await;
+        
+        // Custom fetch for legacy flashcards
+        #[derive(Deserialize)]
+        struct OldSchoolFlashcard {
+            pub id: String,
+            #[serde(rename = "userId")]
+            pub user_id: String,
+            pub subject: String,
+            #[serde(rename = "noteId")]
+            pub note_id: String,
+            pub question: String,
+            pub answer: String,
+            #[serde(rename = "createdAt", default)]
+            pub created_at: String,
+            #[serde(rename = "imageUrl")]
+            pub image_url: Option<String>,
+            #[serde(rename = "updatedAt")]
+            pub updated_at: Option<String>,
+        }
+        
+        let old_flashcards = fetch_and_log::<OldSchoolFlashcard>(client, "flashcards", user_id).await;
+        let flashcards: Vec<SchoolFlashcard> = old_flashcards.into_iter().map(|old| {
+            SchoolFlashcard {
+                id: old.id,
+                user_id: old.user_id,
+                subject: old.subject,
+                question: old.question,
+                answer: old.answer,
+                stability: 0.0,
+                difficulty: 0.0,
+                due: chrono::Utc::now().to_rfc3339(),
+                interval: 0.0,
+                lapses: 0,
+                last_review: None,
+                linked_note_ids: Some(serde_json::json!(vec![old.note_id])),
+                tags: None,
+                created_at: old.created_at,
+                image_url: old.image_url,
+                updated_at: old.updated_at,
+            }
+        }).collect();
 
         let mut loro = self.loro.lock().await;
         println!("[Migration] Pre-Migration Loro State: {}", loro.dump_state());
@@ -388,7 +469,7 @@ impl TrailbaseService {
 
                 if imported {
                     let mut last_vv = last_pushed_vv.lock().await;
-                    let mut lid = last_pulled_id.lock().await;
+                    let lid = last_pulled_id.lock().await;
                     {
                         let l = loro.lock().await;
                         *last_vv = l.get_vv();
