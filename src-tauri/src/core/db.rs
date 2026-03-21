@@ -19,6 +19,15 @@ pub struct TrailbaseService {
     sync_state_path: std::path::PathBuf,
     last_pushed_vv: Arc<Mutex<VersionVector>>,
     last_pulled_id: Arc<Mutex<Option<String>>>,
+    config: SyncConfig,
+}
+
+#[derive(Clone)]
+struct SyncConfig {
+    server_url: String,
+    username: String,
+    password: String,
+    user_id: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,26 +63,33 @@ impl TrailbaseService {
 
         let loro = Arc::new(Mutex::new(loro_manager));
         let is_offline = Arc::new(AtomicBool::new(true));
-        let server_url = "https://keshayens-server.tail28d7e8.ts.net".to_string();
+
+        let config = SyncConfig {
+            server_url: "https://keshayens-server.tail28d7e8.ts.net".to_string(),
+            username: "study@example.com".to_string(),
+            password: "study1234".to_string(),
+            user_id: "LRA8iDK1iBUKGCdVIOff7CjVhxT2".to_string(),
+        };
         
-        let client = Client::new(&server_url, None)?;
+        let client = Client::new(&config.server_url, None)?;
         
         println!("[System] Initialized in OFFLINE mode (Loro doc loaded)");
 
         Ok(Self {
             client,
-            user_id: "LRA8iDK1iBUKGCdVIOff7CjVhxT2".to_string(),
+            user_id: config.user_id.clone(),
             loro,
             is_offline,
             sync_state_path,
             last_pushed_vv: Arc::new(Mutex::new(vv)),
             last_pulled_id: Arc::new(Mutex::new(last_id)),
+            config,
         })
     }
 
     async fn ensure_login(&self) -> Result<()> {
-        let username = "study@example.com".to_string();
-        let password = "study1234".to_string();
+        let username = self.config.username.clone();
+        let password = self.config.password.clone();
         
         match timeout(Duration::from_secs(30), self.client.login(&username, &password)).await {
             Ok(Ok(_)) => Ok(()),
@@ -270,8 +286,7 @@ impl TrailbaseService {
         let last_pushed_vv = self.last_pushed_vv.clone();
         let last_pulled_id = self.last_pulled_id.clone();
         let sync_state_path_clone = self.sync_state_path.clone();
-        let username = "study@example.com".to_string();
-        let password = "study1234".to_string();
+        let config = self.config.clone();
 
         tokio::spawn(async move {
             let mut offline_start_time = std::time::Instant::now();
@@ -280,7 +295,7 @@ impl TrailbaseService {
                 let is_currently_offline = is_offline_clone.load(Ordering::Relaxed);
                 
                 if is_currently_offline {
-                    let login_result = timeout(Duration::from_secs(5), client_clone.login(&username, &password)).await;
+                    let login_result = timeout(Duration::from_secs(5), client_clone.login(&config.username, &config.password)).await;
                     
                     if let Ok(Ok(_)) = login_result {
                         let duration = offline_start_time.elapsed().as_secs();
@@ -324,52 +339,61 @@ impl TrailbaseService {
         sync_state_path: &std::path::PathBuf
     ) -> Result<()> {
         // 1. Pull new updates
-        let mut last_id = last_pulled_id.lock().await;
         let mut args = ListArguments::new();
-        
-        if let Some(id) = &*last_id {
-            args = args.with_filters(Filter::new("id", CompareOp::GreaterThan, id.clone()));
-        }
+        {
+            let last_id = last_pulled_id.lock().await;
+            if let Some(id) = &*last_id {
+                args = args.with_filters(Filter::new("id", CompareOp::GreaterThan, id.clone()));
+            }
+        } // Lock released before list().await
 
         let resp = client.records("sync_updates").list::<serde_json::Value>(args).await;
         match resp {
             Ok(records) => {
                 let mut imported = false;
-                for rec in records.records {
-                    let data_val = rec.get("data").unwrap_or(&serde_json::Value::Null);
-                    
-                    let data = match data_val {
-                        serde_json::Value::String(s) => base64_or_hex_decode(s),
-                        serde_json::Value::Array(arr) => arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect(),
-                        _ => Vec::new(),
-                    };
-                    let peer_id = rec.get("peer_id").and_then(|v| v.as_str()).unwrap_or("");
-                    
-                    let current_peer_id = {
-                        let l = loro.lock().await;
-                        format!("p_{}", l.peer_id())
-                    };
+                let mut final_last_id = None;
+                
+                // Collect and process records while holding the lock briefly
+                {
+                    let l = loro.lock().await;
+                    let current_peer_id = format!("p_{}", l.peer_id());
 
-                    if peer_id != current_peer_id && !data.is_empty() {
-                        let l = loro.lock().await;
-                        if let Err(e) = l.import_updates(&data) {
-                            println!("[Sync] Error importing update: {:?}", e);
-                        } else {
-                            imported = true;
+                    for rec in records.records {
+                        let data_val = rec.get("data").unwrap_or(&serde_json::Value::Null);
+                        let data = match data_val {
+                            serde_json::Value::String(s) => base64_or_hex_decode(s),
+                            serde_json::Value::Array(arr) => arr.iter().map(|v| v.as_u64().unwrap_or(0) as u8).collect(),
+                            _ => Vec::new(),
+                        };
+                        let peer_id = rec.get("peer_id").and_then(|v| v.as_str()).unwrap_or("");
+                        
+                        if peer_id != current_peer_id && !data.is_empty() {
+                            if let Err(e) = l.import_updates(&data) {
+                                println!("[Sync] Error importing update: {:?}", e);
+                            } else {
+                                imported = true;
+                            }
+                        }
+                        
+                        if let Some(id_str) = rec.get("id").and_then(|v| v.as_str()) {
+                            final_last_id = Some(id_str.to_string());
                         }
                     }
-                    
-                    if let Some(id_str) = rec.get("id").and_then(|v| v.as_str()) {
-                        *last_id = Some(id_str.to_string());
-                    }
+                } // Lock released
+
+                if let Some(id) = final_last_id {
+                    let mut lid = last_pulled_id.lock().await;
+                    *lid = Some(id);
                 }
+
                 if imported {
-                    // IMPORTANT: After importing remote updates, we MUST update our last_pushed_vv
-                    // to the new state, otherwise we will re-push the same updates back to the server.
                     let mut last_vv = last_pushed_vv.lock().await;
-                    let l = loro.lock().await;
-                    *last_vv = l.get_vv();
-                    let _ = Self::save_sync_state(&*last_vv, &*last_id, sync_state_path);
+                    let mut lid = last_pulled_id.lock().await;
+                    {
+                        let l = loro.lock().await;
+                        *last_vv = l.get_vv();
+                    }
+                    let _ = Self::save_sync_state(&*last_vv, &*lid, sync_state_path);
                     let _ = handle.emit("data-changed", ());
                 }
             },
@@ -379,33 +403,27 @@ impl TrailbaseService {
         }
 
         // 2. Push local updates
-        let mut last_vv = last_pushed_vv.lock().await;
         let (updates, new_vv, peer_id) = {
+            let last_vv = last_pushed_vv.lock().await;
             let l = loro.lock().await;
             let current_vv = l.get_vv();
             
-            // Helpful logging to see if Loro is actually detecting changes
             if &current_vv != &*last_vv {
-                println!("[Sync] Change detected! VV: {:?} -> {:?}", *last_vv, current_vv);
-            }
-
-            if &current_vv == &*last_vv {
-                (None, current_vv, l.peer_id())
-            } else {
                 let data = l.export_updates(&*last_vv)?;
                 (Some(data), current_vv, l.peer_id())
+            } else {
+                (None, current_vv, l.peer_id())
             }
-        };
+        }; // Locks released before list().await and create().await
 
         if let Some(data) = updates {
             if !data.is_empty() {
-                // 1. Get current MAX(sequence_number)
-                let mut max_seq = 0;
                 let args = ListArguments::new()
                     .with_pagination(Pagination::new().with_limit(1))
                     .with_order(["-sequence_number"]);
                 
                 let resp = client.records("sync_updates").list::<serde_json::Value>(args).await;
+                let mut max_seq = 0;
                 match resp {
                     Ok(records) => {
                         if let Some(first) = records.records.first() {
@@ -420,10 +438,9 @@ impl TrailbaseService {
                 let now = chrono::Utc::now().timestamp();
                 let target_seq = max_seq + 1;
 
-                // Trying raw byte array for the BLOB column instead of HEX string
                 let payload = serde_json::json!({
                     "peer_id": format!("p_{}", peer_id),
-                    "data": data, // serde_json will serialize Vec<u8> as an array of numbers [..., ..., ...]
+                    "data": data,
                     "sequence_number": target_seq,
                     "created_at": now,
                 });
@@ -431,13 +448,12 @@ impl TrailbaseService {
                 if let Err(e) = client.records("sync_updates").create(&payload).await {
                     let err_msg = format!("{:?}", e);
                     println!("[Sync] Error pushing update: {}", err_msg);
-                    if err_msg.contains("unique") || err_msg.contains("duplicate") {
-                        println!("[Sync] Conflict detected on sequence_number {}!", target_seq);
-                    }
                 } else {
                     println!("[Sync] Successfully pushed update: seq={}", target_seq);
-                    *last_vv = new_vv;
-                    let _ = Self::save_sync_state(&*last_vv, &*last_id, sync_state_path);
+                    let mut last_vv_lock = last_pushed_vv.lock().await;
+                    let lid = last_pulled_id.lock().await;
+                    *last_vv_lock = new_vv;
+                    let _ = Self::save_sync_state(&*last_vv_lock, &*lid, sync_state_path);
                 }
             }
         }
@@ -537,7 +553,12 @@ impl TrailbaseService {
             last_pulled_id: last_id.clone(),
         };
         let content = serde_json::to_string(&state)?;
-        fs::write(path, content)?;
+        
+        // Atomic write: write to .tmp then rename
+        let tmp_path = path.with_extension("tmp");
+        fs::write(&tmp_path, content)?;
+        fs::rename(tmp_path, path)?;
+        
         Ok(())
     }
 }

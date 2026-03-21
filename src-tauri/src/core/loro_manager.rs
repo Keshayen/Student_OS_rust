@@ -28,7 +28,11 @@ impl LoroManager {
             let doc = LoroDoc::new();
             let id = doc.peer_id();
             let config = DeviceConfig { peer_id: id };
-            fs::write(&config_path, serde_json::to_string(&config)?)?;
+            
+            let tmp_config = config_path.with_extension("tmp");
+            fs::write(&tmp_config, serde_json::to_string(&config)?)?;
+            fs::rename(tmp_config, &config_path)?;
+            
             id
         };
 
@@ -52,7 +56,11 @@ impl LoroManager {
         let bytes = self.doc
             .export(ExportMode::Snapshot)
             .map_err(|e| anyhow!("Loro export error: {:?}", e))?;
-        fs::write(&self.storage_path, bytes)?;
+            
+        let tmp_path = self.storage_path.with_extension("tmp");
+        fs::write(&tmp_path, bytes)?;
+        fs::rename(tmp_path, &self.storage_path)?;
+        
         Ok(())
     }
 
