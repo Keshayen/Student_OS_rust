@@ -8,6 +8,8 @@
       <sourceFolder url="file://$MODULE_DIR$/src-tauri/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src-tauri/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src-tauri/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src-tauri/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/src-tauri/target" />
       <excludeFolder url="file://$MODULE_DIR$/src-tauri/target" />
       <excludeFolder url="file://$MODULE_DIR$/src-tauri/target" />
       <excludeFolder url="file://$MODULE_DIR$/src-tauri/target" />
