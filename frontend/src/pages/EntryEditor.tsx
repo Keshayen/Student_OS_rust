@@ -247,7 +247,7 @@ export default function EntryEditor() {
      
      const timer = setTimeout(() => {
         handleSave(true);
-     }, 1500);
+     }, 800);
      Api.log_to_terminal(`[EntryEditor] Auto-save timer started - Title: ${title || 'Untitled'} - trackingToken: ${trackingToken || 'NEW'}`);
      return () => clearTimeout(timer);
   }, [
@@ -471,7 +471,7 @@ export default function EntryEditor() {
 
         {/* Editor for content-heavy types like Notes */}
         {selectedType === 'school_notes' && (
-          <NotionEditor key={currentEntryId || "new"} documentId={currentEntryId} initialContent={content} onChange={setContent} />
+          <NotionEditor documentId={currentEntryId} initialContent={content} onChange={setContent} />
         )}
       </div>
 

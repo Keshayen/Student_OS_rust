@@ -1,5 +1,6 @@
 import { Plus, ChevronRight, FileText, CheckCircle2, Waves, Activity } from 'lucide-react';
 import { useAppStore } from '../store';
+import CalendarView from '../components/dashboard/CalendarView';
 
 export default function Dashboard({ view = 'dashboard' }: { view?: 'dashboard' | 'notes' | 'tasks' | 'swims' | 'grades' | 'galas' | 'qts' | string }) {
   const { tasks, notes, swims, grades, galas, qts, openEditor, fetchData } = useAppStore();
@@ -12,6 +13,12 @@ export default function Dashboard({ view = 'dashboard' }: { view?: 'dashboard' |
         </h1>
         <p className="text-[#9b9b9b]">{view === 'dashboard' ? "Here's your overview." : `Manage your ${view.replace('_', ' ')}.`}</p>
       </div>
+
+      {view === 'dashboard' && (
+        <div className="px-4 lg:px-8 mb-10">
+          <CalendarView />
+        </div>
+      )}
 
       <div className={`px-4 lg:px-8 grid gap-6 ${view === 'dashboard' ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3 items-start' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 auto-rows-max'}`}>
         {/* OVERVIEW DASHBOARD */}

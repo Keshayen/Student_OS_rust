@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useAppStore } from "../../store";
 import { BlockNoteView } from "@blocknote/mantine";
 import { useCreateBlockNote } from "@blocknote/react";
 import { getDefaultReactSlashMenuItems, SuggestionMenuController, createReactBlockSpec } from "@blocknote/react";
@@ -20,7 +21,7 @@ const FlashcardBlock = createReactBlockSpec(
     propSchema: {
       question: { default: "" },
       answer: { default: "" },
-      subject: { default: "General" },
+      subject: { default: "" },
       flashcardId: { default: "" },
       tags: { default: "" }, // String-serialized list for easy editing
       linkedNoteIds: { default: "" },
@@ -29,6 +30,14 @@ const FlashcardBlock = createReactBlockSpec(
   },
   {
     render: (props) => {
+      const flashcards = useAppStore(state => state.flashcards);
+      const notes = useAppStore(state => state.notes);
+      
+      const [tagQuery, setTagQuery] = useState("");
+      const [noteQuery, setNoteQuery] = useState("");
+      const [showTagDropdown, setShowTagDropdown] = useState(false);
+      const [showNoteDropdown, setShowNoteDropdown] = useState(false);
+
       const syncToBackend = () => {
          if (props.block.props.flashcardId) {
              Api.getFlashcards().then(cards => {
@@ -37,7 +46,6 @@ const FlashcardBlock = createReactBlockSpec(
                     ...card, 
                     question: props.block.props.question, 
                     answer: props.block.props.answer, 
-                    subject: props.block.props.subject,
                     tags: props.block.props.tags.split(",").map((t: string) => t.trim()).filter((t: string) => t),
                     linkedNoteIds: props.block.props.linkedNoteIds.split(",").map((t: string) => t.trim()).filter((t: string) => t),
                  });
@@ -45,56 +53,123 @@ const FlashcardBlock = createReactBlockSpec(
          }
       };
 
+      const existingTags = Array.from(new Set(flashcards.flatMap(f => Array.isArray(f.tags) ? f.tags : []))).filter(Boolean);
+      const filteredTags = existingTags.filter(t => t.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 5);
+      const filteredNotes = notes.filter(n => n.title.toLowerCase().includes(noteQuery.toLowerCase())).slice(0, 5);
+
       return (
-        <div className="bg-[#1e1e1e] border border-purple-500/30 rounded-xl p-4 my-2 flex flex-col gap-3 relative overflow-hidden group w-full" contentEditable={false}>
-          <div className="absolute top-0 right-0 p-3 opacity-10 pointer-events-none">
-             <BrainCircuit size={80} className="text-purple-400" />
+        <div className="bg-[#1e1e1e] border border-purple-500/30 rounded-lg p-3 my-2 flex flex-col gap-2 relative group w-full max-w-2xl" contentEditable={false}>
+          <div className="absolute top-0 right-0 p-2 opacity-5 pointer-events-none">
+             <BrainCircuit size={40} className="text-purple-400" />
           </div>
-          <div className="flex items-center gap-2 mb-1">
-             <span className="bg-purple-500/20 text-purple-400 text-[10px] font-black uppercase px-2 py-0.5 rounded tracking-wider z-10">Flashcard</span>
-             <input 
-               value={props.block.props.subject} 
-               onChange={(e) => props.editor.updateBlock(props.block, { type: "flashcard", props: { ...props.block.props, subject: e.target.value }})}
-               onBlur={syncToBackend}
-               placeholder="Tag / Subject"
-               className="bg-transparent text-xs font-semibold text-[#9b9b9b] hover:text-white px-2 py-1 rounded focus:outline-none z-10 border-none outline-none w-32 border border-transparent focus:border-white/10"
-             />
+          <div className="flex items-center gap-2">
+             <span className="bg-purple-500/20 text-purple-400 text-[8px] font-black uppercase px-1.5 py-0.5 rounded tracking-wider z-10">Flashcard</span>
           </div>
           <input 
              value={props.block.props.question}
              onChange={(e) => props.editor.updateBlock(props.block, { type: "flashcard", props: { ...props.block.props, question: e.target.value }})}
              onBlur={syncToBackend}
-             placeholder="Front / Question..."
-             className="bg-transparent text-xl font-bold text-white placeholder-white/30 focus:outline-none z-10 w-full"
+             placeholder="Question..."
+             className="bg-transparent text-lg font-bold text-white placeholder-white/30 focus:outline-none z-10 w-full"
           />
-          <div className="w-full h-px bg-white/10 my-1 z-10" />
           <textarea 
              value={props.block.props.answer}
              onChange={(e) => props.editor.updateBlock(props.block, { type: "flashcard", props: { ...props.block.props, answer: e.target.value }})}
              onBlur={syncToBackend}
-             placeholder="Back / Answer hidden until revealed..."
-             className="bg-transparent text-sm text-[#d4d4d4] placeholder-white/20 focus:outline-none z-10 w-full resize-none min-h-[60px]"
+             placeholder="Answer..."
+             className="bg-transparent text-xs text-[#9b9b9b] placeholder-white/10 focus:outline-none z-10 w-full resize-none min-h-[40px] leading-tight"
           />
-          <div className="flex gap-4 z-10 px-1 pt-2 border-t border-white/5">
-             <div className="flex-1 flex flex-col gap-1">
-               <span className="text-[8px] text-[#525252] font-black uppercase tracking-tighter">Tags</span>
-               <input 
-                 value={props.block.props.tags}
-                 onChange={(e) => props.editor.updateBlock(props.block, { type: "flashcard", props: { ...props.block.props, tags: e.target.value }})}
-                 onBlur={syncToBackend}
-                 placeholder="separate by comma"
-                 className="bg-transparent text-[10px] text-purple-400 font-bold focus:outline-none w-full"
-               />
-             </div>
-             <div className="flex-1 flex flex-col gap-1">
-               <span className="text-[8px] text-[#525252] font-black uppercase tracking-tighter">Linked Notes</span>
-               <input 
-                 value={props.block.props.linkedNoteIds}
-                 onChange={(e) => props.editor.updateBlock(props.block, { type: "flashcard", props: { ...props.block.props, linkedNoteIds: e.target.value }})}
-                 onBlur={syncToBackend}
-                 placeholder="ID pairs"
-                 className="bg-transparent text-[10px] text-blue-400 font-bold focus:outline-none w-full"
-               />
+          
+          <div className="flex flex-col gap-1.5 z-10 pt-2 border-t border-white/5 mt-1 relative">
+             <div className="flex items-center gap-3">
+               {/* TAGS AUTOCOMPLETE */}
+               <div className="flex-1 flex flex-col gap-1 relative">
+                 <span className="text-[8px] text-[#525252] font-black uppercase tracking-tighter">Tags</span>
+                 <input 
+                   value={tagQuery || props.block.props.tags}
+                   onChange={(e) => {
+                     setTagQuery(e.target.value);
+                     setShowTagDropdown(true);
+                     props.editor.updateBlock(props.block, { type: "flashcard", props: { ...props.block.props, tags: e.target.value }});
+                   }}
+                   onFocus={() => setShowTagDropdown(true)}
+                   onBlur={() => { setTimeout(() => setShowTagDropdown(false), 200); syncToBackend(); }}
+                   placeholder="Add tags..."
+                   className="bg-transparent text-[10px] text-purple-400/80 font-bold focus:outline-none w-full"
+                 />
+                 {showTagDropdown && filteredTags.length > 0 && (
+                   <div className="absolute bottom-full mb-1 left-0 w-full bg-[#252525] border border-white/10 rounded shadow-xl z-50 overflow-hidden">
+                     {filteredTags.map(tag => (
+                       <div 
+                         key={tag} 
+                         onClick={() => {
+                           const current = props.block.props.tags || "";
+                           const tags = current.split(",").map(t => t.trim()).filter(Boolean);
+                           if (!tags.includes(tag)) {
+                             const newVal = [...tags, tag].join(", ");
+                             props.editor.updateBlock(props.block, { type: "flashcard", props: { ...props.block.props, tags: newVal }});
+                             setTagQuery("");
+                           }
+                           setShowTagDropdown(false);
+                         }}
+                         className="px-2 py-1 text-[10px] text-purple-300 hover:bg-purple-500/20 cursor-pointer transition-colors"
+                       >
+                         {tag}
+                       </div>
+                     ))}
+                   </div>
+                 )}
+               </div>
+
+               {/* NOTES AUTOCOMPLETE */}
+               <div className="flex-1 flex flex-col gap-1 border-l border-white/5 pl-3 relative">
+                 <span className="text-[8px] text-[#525252] font-black uppercase tracking-tighter">Link Notes</span>
+                 <div className="flex flex-wrap gap-1 mb-1">
+                   {props.block.props.linkedNoteIds.split(",").map((id: string) => {
+                      const trimmedId = id.trim();
+                      if (!trimmedId) return null;
+                      const noteTitle = notes.find(n => n.id === trimmedId)?.title || trimmedId;
+                      return (
+                        <span key={trimmedId} className="text-[9px] text-blue-400/60 font-medium truncate max-w-[80px]">
+                          {noteTitle}
+                        </span>
+                      );
+                   })}
+                 </div>
+                 <input 
+                   value={noteQuery}
+                   onChange={(e) => {
+                     setNoteQuery(e.target.value);
+                     setShowNoteDropdown(true);
+                   }}
+                   onFocus={() => setShowNoteDropdown(true)}
+                   onBlur={() => { setTimeout(() => setShowNoteDropdown(false), 200); syncToBackend(); }}
+                   placeholder="+ note title..."
+                   className="bg-transparent text-[10px] text-blue-400/80 font-bold focus:outline-none w-full"
+                 />
+                 {showNoteDropdown && filteredNotes.length > 0 && (
+                   <div className="absolute bottom-full mb-1 left-0 w-full bg-[#252525] border border-white/10 rounded shadow-xl z-50 overflow-hidden">
+                     {filteredNotes.map(note => (
+                       <div 
+                         key={note.id} 
+                         onClick={() => {
+                           const current = props.block.props.linkedNoteIds || "";
+                           const ids = current.split(",").map(id => id.trim()).filter(Boolean);
+                           if (!ids.includes(note.id)) {
+                             const newVal = [...ids, note.id].join(", ");
+                             props.editor.updateBlock(props.block, { type: "flashcard", props: { ...props.block.props, linkedNoteIds: newVal }});
+                             setNoteQuery("");
+                           }
+                           setShowNoteDropdown(false);
+                         }}
+                         className="px-2 py-1 text-[10px] text-blue-300 hover:bg-blue-500/20 cursor-pointer transition-colors"
+                       >
+                         {note.title}
+                       </div>
+                     ))}
+                   </div>
+                 )}
+               </div>
              </div>
           </div>
         </div>
@@ -151,7 +226,7 @@ export default function NotionEditor({ documentId, initialContent, onChange }: N
         [
           {
             type: "flashcard",
-            props: { flashcardId: fcId, question: "", answer: "", subject: "General" },
+            props: { flashcardId: fcId, question: "", answer: "", subject: "" },
           } as any,
         ],
         e.getTextCursorPosition().block,
@@ -161,7 +236,7 @@ export default function NotionEditor({ documentId, initialContent, onChange }: N
       Api.createRecord('flashcards', {
         id: fcId,
         userId: "LRA8iDK1iBUKGCdVIOff7CjVhxT2",
-        subject: "General",
+        subject: "",
         question: "",
         answer: "",
         stability: 0,

@@ -28,10 +28,21 @@ export default function App() {
       fetchData();
     });
 
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === 'n') {
+        e.preventDefault();
+        useAppStore.getState().openEditor('school_notes', null);
+        Api.log_to_terminal("[App] Cmd+N pressed - Navigating to New Note");
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
     return () => {
       unlistenConnection.then(f => f());
       unlistenSync.then(f => f());
       unlistenData.then(f => f());
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [fetchData]);
 
