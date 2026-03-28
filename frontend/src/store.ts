@@ -62,9 +62,13 @@ export const useAppStore = create<AppState>((set) => ({
       const getValue = <T>(res: PromiseSettledResult<T>, fallback: T): T => 
         res.status === 'fulfilled' ? res.value : fallback;
 
+      const notes = getValue(results[1], []);
+      const tasks = getValue(results[0], []);
+      console.log(`[Store] Fetch complete. Notes: ${notes.length}, Tasks: ${tasks.length}, Grades: ${getValue(results[2], []).length}`);
+      
       set({ 
-        tasks: getValue(results[0], []), 
-        notes: getValue(results[1], []), 
+        tasks, 
+        notes, 
         grades: getValue(results[2], []), 
         swims: getValue(results[3], []), 
         galas: getValue(results[4], []), 

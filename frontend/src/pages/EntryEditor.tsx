@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { Api } from '../api';
 import NotionEditor from '../components/editor/NotionEditor';
-import { ChevronLeft, Save } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 
 export default function EntryEditor() {
   const { currentEntryId, currentEntryType, setCurrentPage, fetchData } = useAppStore();
@@ -16,6 +16,7 @@ export default function EntryEditor() {
   const [subject, setSubject] = useState('Mathematics');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Tasks
   const [isCompleted, setIsCompleted] = useState(false);
@@ -39,13 +40,31 @@ export default function EntryEditor() {
   const [category, setCategory] = useState('Test');
   const [schoolYear, setSchoolYear] = useState(new Date().getFullYear());
 
+  // Swim Galas
+  const [galaCourse, setGalaCourse] = useState('Short Course (25m)');
+  const [galaLocation, setGalaLocation] = useState('');
+
+  // Qualifying Times
+  const [qtTargetTime, setQtTargetTime] = useState(0);
+  const [qtIsAchieved, setQtIsAchieved] = useState(false);
+  const [qtCourse, setQtCourse] = useState('Short Course (25m)');
+  
+  // Flashcards (for direct editing on the card)
+  const [fcQuestion, setFcQuestion] = useState('');
+  const [fcAnswer, setFcAnswer] = useState('');
+  const [fcTags, setFcTags] = useState<string[]>([]);
+  const [fcLinkedNotes, setFcLinkedNotes] = useState<string[]>([]);
+
   const subjects = ['Mathematics', 'English', 'Afrikaans', 'Physics', 'AP Math', 'EGD', 'Geography', 'Life Orientation', 'Information Technologies'];
   const strokes = ['Freestyle', 'Backstroke', 'Breaststroke', 'Butterfly', 'IM'];
   const entryTypes = [
     { value: 'school_notes', label: 'School Note' },
     { value: 'tasks', label: 'Task / Habit' },
     { value: 'swim_sessions', label: 'Swim Session' },
-    { value: 'school_grades', label: 'School Grade' }
+    { value: 'school_grades', label: 'School Grade' },
+    { value: 'swim_galas', label: 'Swim Gala' },
+    { value: 'qualifying_times', label: 'Qualifying Time' },
+    { value: 'flashcards', label: 'Flashcard' }
   ];
 
   useEffect(() => {
@@ -80,43 +99,98 @@ export default function EntryEditor() {
             if(item.schoolYear) setSchoolYear(item.schoolYear);
             if(item.date) setDate(item.date.split('T')[0]);
           }
+        } else if (currentEntryType === 'swim_galas') {
+          const item = state.galas.find(g => g.id === currentEntryId);
+          if (item) {
+            setTitle(item.name); setGalaCourse(item.course); setDate(item.date.split('T')[0]);
+            if (item.location) setGalaLocation(item.location);
+          }
+        } else if (currentEntryType === 'qualifying_times') {
+          const item = state.qts.find(q => q.id === currentEntryId);
+          if (item) {
+            setTitle(item.eventName); setQtCourse(item.course); setQtTargetTime(item.targetTime); setQtIsAchieved(item.isAchieved);
+          }
+        } else if (currentEntryType === 'flashcards') {
+          const item = state.flashcards.find(f => f.id === currentEntryId);
+          if (item) {
+            setTitle(item.subject); setSubject(item.subject); setFcQuestion(item.question); setFcAnswer(item.answer);
+            setFcTags(item.tags || []); setFcLinkedNotes(item.linkedNoteIds || []);
+          }
         }
       } else {
-        setTitle(''); setContent('');
+        setTitle(''); setContent(''); setScore(0); setTotal(100); setDistance(0); setDuration(0);
       }
       setTrackingId(currentEntryId);
     }
-  }, [currentEntryId, currentEntryType, state, trackingId]);
+  }, [currentEntryId, currentEntryType, state.notes, state.tasks, state.flashcards, state.swims, state.grades, state.galas, state.qts, trackingId]);
 
-  const handleSave = async () => {
-    if (!title) return alert("Title property is required");
+  const handleSave = async (isAutoSave = false) => {
+    const effectiveTitle = title || "Untitled";
+    if (!title && !isAutoSave) return alert("Title or main property is required");
+    // No longer aborting for autosave if title is empty, use Untitled
+    
+    const userId = "LRA8iDK1iBUKGCdVIOff7CjVhxT2"; // Dummy or real UID
+    setIsSaving(true);
+    Api.log_to_terminal(`[EntryEditor] Saving ${selectedType} (id: ${currentEntryId || 'NEW'}) - Title: ${effectiveTitle}`);
     
     try {
       if (currentEntryId) {
          // Update
+         const freqs = { 'none': null, 'daily': 'daily', 'weekly':'weekly', 'monthly':'monthly' } as any;
          if (selectedType === 'school_notes') {
             const base = state.notes.find(n => n.id === currentEntryId);
-            await Api.updateRecord('school_notes', { ...base, title, subject, content, updatedAt: new Date().toISOString() });
+            await Api.updateRecord('school_notes', { 
+              userId, ...base, id: currentEntryId, title: effectiveTitle, subject, content, 
+              createdAt: base?.createdAt || new Date().toISOString(),
+              updatedAt: new Date().toISOString() 
+            });
          } else if (selectedType === 'tasks') {
-            const base = state.tasks.find(n => n.id === currentEntryId);
-            const freqs = { 'none': null, 'daily': 'daily', 'weekly':'weekly', 'monthly':'monthly' } as any;
+            const base = state.tasks.find(t => t.id === currentEntryId);
             await Api.updateRecord('tasks', { 
-               ...base, title, subject, isCompleted, taskType, schoolTaskType: taskType === 'school' ? schoolTaskType : null,
-               dueDate: dueDate ? new Date(dueDate).toISOString() : null, frequency: freqs[frequency], updatedAt: new Date().toISOString()
+               userId, ...base, id: currentEntryId, title, subject, isCompleted, taskType, 
+               schoolTaskType: taskType === 'school' ? schoolTaskType : (base?.schoolTaskType || null),
+               dueDate: dueDate ? new Date(dueDate).toISOString() : (base?.dueDate || null), 
+               frequency: freqs[frequency], 
+               createdDate: base?.createdDate || new Date().toISOString(),
+               reminderEnabled: base?.reminderEnabled ?? false,
+               updatedAt: new Date().toISOString()
             });
          } else if (selectedType === 'swim_sessions') {
             const base = state.swims.find(n => n.id === currentEntryId);
             await Api.updateRecord('swim_sessions', { 
-               ...base, notes: title, distance, stroke, duration, date: new Date(date).toISOString(), poolLength, caloriesBurned, workoutEffect, updatedAt: new Date().toISOString() 
+               userId, ...base, id: currentEntryId, notes: title, distance, stroke, duration, date: new Date(date).toISOString(), poolLength, caloriesBurned, workoutEffect, 
+               updatedAt: new Date().toISOString() 
             });
          } else if (selectedType === 'school_grades') {
             const base = state.grades.find(n => n.id === currentEntryId);
-            await Api.updateRecord('school_grades', { ...base, title, score, total, subject, cycle, category, schoolYear, date: new Date(date).toISOString(), updatedAt: new Date().toISOString() });
+            await Api.updateRecord('school_grades', { 
+              userId, ...base, id: currentEntryId, title, score, total, subject, cycle, category, schoolYear, date: new Date(date).toISOString(), 
+              updatedAt: new Date().toISOString() 
+            });
+         } else if (selectedType === 'swim_galas') {
+            const base = state.galas.find(n => n.id === currentEntryId);
+            await Api.updateRecord('swim_galas', { 
+              userId, ...base, id: currentEntryId, name: title, course: galaCourse, location: galaLocation, date: new Date(date).toISOString(), 
+              updatedAt: new Date().toISOString() 
+            });
+         } else if (selectedType === 'qualifying_times') {
+            const base = state.qts.find(n => n.id === currentEntryId);
+            await Api.updateRecord('qualifying_times', { 
+              userId, ...base, id: currentEntryId, eventName: title, course: qtCourse, targetTime: qtTargetTime, isAchieved: qtIsAchieved, 
+              updatedAt: new Date().toISOString() 
+            });
+         } else if (selectedType === 'flashcards') {
+            const base = state.flashcards.find(f => f.id === currentEntryId);
+            await Api.updateRecord('flashcards', { 
+              userId, ...base, id: currentEntryId, subject: subject || title, question: fcQuestion, answer: fcAnswer, tags: fcTags, linkedNoteIds: fcLinkedNotes, 
+              createdAt: base?.createdAt || new Date().toISOString(),
+              due: base?.due || new Date().toISOString(),
+              updatedAt: new Date().toISOString() 
+            });
          }
       } else {
         // Create
-        const baseId = "";
-        const userId = "LRA8iDK1iBUKGCdVIOff7CjVhxT2"; // Dummy or real UID
+        const baseId = crypto.randomUUID();
         
         if (selectedType === 'school_notes') {
           await Api.createRecord('school_notes', { id: baseId, userId, title, subject, content, createdAt: new Date().toISOString() });
@@ -135,16 +209,51 @@ export default function EntryEditor() {
           await Api.createRecord('school_grades', { 
              id: baseId, userId, subject, title, score, total, cycle, category, date: new Date(date).toISOString(), schoolYear 
           });
+        } else if (selectedType === 'swim_galas') {
+          await Api.createRecord('swim_galas', { id: baseId, userId, name: title, date: new Date(date).toISOString(), course: galaCourse, location: galaLocation });
+        } else if (selectedType === 'qualifying_times') {
+          await Api.createRecord('qualifying_times', { id: baseId, userId, eventName: title, targetTime: qtTargetTime, course: qtCourse, isAchieved: qtIsAchieved });
+        } else if (selectedType === 'flashcards') {
+          await Api.createRecord('flashcards', { 
+            id: baseId, userId, subject: subject || title, question: fcQuestion, answer: fcAnswer,
+            stability: 0, difficulty: 0, interval: 0, lapses: 0, due: new Date().toISOString(), createdAt: new Date().toISOString(),
+            tags: fcTags, linkedNoteIds: fcLinkedNotes
+          });
         }
+        
+        // CRITICAL: Update the store to track the new record ID, shifting the editor to "Update" mode
+        useAppStore.setState({ currentEntryId: baseId });
       }
       
-      await fetchData();
-      setCurrentPage('dashboard');
+      // AutoSave triggers sync implicitly without bouncing navigation
+      if (!isAutoSave) {
+         await fetchData();
+         setCurrentPage('dashboard');
+      }
     } catch (e) {
       console.error(e);
-      alert("Failed to save entry");
+      if (!isAutoSave) alert("Failed to save entry");
+    } finally {
+      setIsSaving(false);
     }
   };
+
+  // Real-time Autobinder natively syncing fields to Rust Core asynchronously
+  useEffect(() => {
+     if (currentEntryId && !trackingId) return; // Still loading existing item 
+     // Removed !title check to allow auto-save with Untitled
+     
+     const timer = setTimeout(() => {
+        handleSave(true);
+     }, 1500);
+     Api.log_to_terminal(`[EntryEditor] Auto-save timer started - Title: ${title || 'Untitled'} - trackingId: ${trackingId || 'NEW'}`);
+     return () => clearTimeout(timer);
+  }, [
+     title, content, subject, date, isCompleted, dueDate, frequency, taskType, schoolTaskType, 
+     distance, duration, stroke, poolLength, caloriesBurned, workoutEffect, 
+     score, total, cycle, category, schoolYear, galaCourse, galaLocation, qtTargetTime, qtIsAchieved, qtCourse, fcQuestion, fcAnswer, fcTags, fcLinkedNotes,
+     currentEntryId, trackingId
+  ]);
 
   const handleDelete = async () => {
     if (!currentEntryId) return;
@@ -171,14 +280,14 @@ export default function EntryEditor() {
            <span className="text-white truncate max-w-[200px]">{title || 'Untitled'}</span>
         </div>
         <div className="flex items-center gap-3">
+          {isSaving && (
+             <span className="text-[10px] text-green-400 font-medium px-2 py-1 bg-green-500/10 rounded mr-2 animate-pulse">Auto-Saving</span>
+          )}
           {currentEntryId && (
              <button onClick={() => setShowDeleteModal(true)} className="text-sm font-semibold text-red-400 hover:text-red-300 transition-colors">
                Delete
              </button>
           )}
-          <button onClick={handleSave} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white/10 hover:bg-white/20 text-white rounded transition-colors">
-            <Save size={14} /> Save
-          </button>
         </div>
       </div>
 
@@ -193,9 +302,17 @@ export default function EntryEditor() {
 
         <input 
           type="text" 
-          placeholder={selectedType === 'swim_sessions' ? "Session Notes..." : "Untitled"}
+          placeholder={
+            selectedType === 'swim_sessions' ? "Session Notes..." : 
+            selectedType === 'swim_galas' ? "Gala Name..." : 
+            selectedType === 'qualifying_times' ? "Event Name (e.g. 50m Free)" : 
+            selectedType === 'flashcards' ? "Flashcard Tag/Subject" : "Untitled"
+          }
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            Api.log_to_terminal(`[EntryEditor] Title changed: ${e.target.value}`);
+          }}
           className="w-full bg-transparent text-4xl md:text-5xl font-bold placeholder-gray-700 text-white focus:outline-none mb-6"
         />
 
@@ -253,7 +370,7 @@ export default function EntryEditor() {
             </>
           )}
 
-          {(selectedType === 'swim_sessions' || selectedType === 'school_grades') && (
+          {(selectedType === 'swim_sessions' || selectedType === 'school_grades' || selectedType === 'swim_galas') && (
             <PropertyRow label="Date">
               <input type="date" value={date} onChange={e => setDate(e.target.value)} className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-0.5 rounded focus:outline-none scheme-dark" />
             </PropertyRow>
@@ -285,13 +402,46 @@ export default function EntryEditor() {
           )}
 
           {/* New Properties for Galas & QTs */}
-          {selectedType === 'swim_galas' && (
+          {(selectedType === 'swim_galas' || selectedType === 'qualifying_times') && (
              <PropertyRow label="Course">
-               <select value={cycle} onChange={e => setCycle(e.target.value)} className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-0.5 rounded cursor-pointer focus:outline-none outline-none">
+               <select value={selectedType === 'swim_galas' ? galaCourse : qtCourse} onChange={e => selectedType === 'swim_galas' ? setGalaCourse(e.target.value) : setQtCourse(e.target.value)} className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-0.5 rounded cursor-pointer focus:outline-none outline-none">
                  <option value="Short Course (25m)" className="bg-[#191919]">Short Course (25m)</option>
                  <option value="Long Course (50m)" className="bg-[#191919]">Long Course (50m)</option>
                </select>
              </PropertyRow>
+          )}
+          {selectedType === 'swim_galas' && (
+             <PropertyRow label="Location">
+               <input type="text" value={galaLocation} onChange={e => setGalaLocation(e.target.value)} placeholder="City / Pool Name" className="bg-transparent text-sm text-[#9b9b9b] hover:text-white hover:bg-white/5 px-2 py-0.5 rounded focus:outline-none" />
+             </PropertyRow>
+          )}
+          {selectedType === 'qualifying_times' && (
+             <>
+               <PropertyRow label="Target (Seconds)">
+                 <input type="number" value={qtTargetTime} onChange={e => setQtTargetTime(Number(e.target.value))} className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-0.5 rounded focus:outline-none w-24" />
+               </PropertyRow>
+               <PropertyRow label="Status">
+                 <button onClick={() => setQtIsAchieved(!qtIsAchieved)} className={`px-2 py-1 rounded text-xs font-semibold select-none ${qtIsAchieved ? 'bg-green-500/20 text-green-400' : 'bg-white/10 text-[#9b9b9b] hover:text-white'}`}>
+                    {qtIsAchieved ? '✓ Achieved' : 'Pending'}
+                 </button>
+               </PropertyRow>
+             </>
+          )}
+          {selectedType === 'flashcards' && (
+             <>
+               <PropertyRow label="Front Card">
+                 <textarea value={fcQuestion} onChange={e => setFcQuestion(e.target.value)} placeholder="Question goes here..." className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-1 rounded focus:outline-none w-full min-h-[60px] resize-none" />
+               </PropertyRow>
+               <PropertyRow label="Back Card">
+                 <textarea value={fcAnswer} onChange={e => setFcAnswer(e.target.value)} placeholder="Hidden Answer..." className="bg-transparent text-sm text-[#9b9b9b] hover:text-white hover:bg-white/5 px-2 py-1 rounded focus:outline-none w-full min-h-[100px] resize-none" />
+               </PropertyRow>
+               <PropertyRow label="Tags">
+                  <input type="text" value={fcTags.join(", ")} onChange={e => setFcTags(e.target.value.split(',').map(t => t.trim()).filter(t => t))} placeholder="tag1, tag2..." className="bg-transparent text-sm text-purple-400 hover:bg-white/5 px-2 py-1 rounded focus:outline-none w-full" />
+               </PropertyRow>
+               <PropertyRow label="Linked Notes">
+                  <input type="text" value={fcLinkedNotes.join(", ")} onChange={e => setFcLinkedNotes(e.target.value.split(',').map(t => t.trim()).filter(t => t))} placeholder="note_id_1, note_id_2..." className="bg-transparent text-sm text-blue-400 hover:bg-white/5 px-2 py-1 rounded focus:outline-none w-full" />
+               </PropertyRow>
+             </>
           )}
 
           {selectedType === 'school_grades' && (

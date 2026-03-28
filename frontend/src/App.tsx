@@ -24,6 +24,7 @@ export default function App() {
     });
     
     const unlistenData = Api.onDataChanged(() => {
+      console.log('[App] Data changed event received, fetching fresh data...');
       fetchData();
     });
 

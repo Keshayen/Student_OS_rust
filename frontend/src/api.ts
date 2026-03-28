@@ -137,14 +137,14 @@ export const Api = {
         return await invoke("global_search", { query });
     },
 
-    async createRecord(collection: string, record: any): Promise<void> {
+    async createRecord(collection: string, record: any): Promise<any> {
         return await invoke("create_record_command", {
             collection,
             recordJson: JSON.stringify(record)
         });
     },
 
-    async updateRecord(collection: string, record: any): Promise<void> {
+    async updateRecord(collection: string, record: any): Promise<any> {
         return await invoke("update_record_command", {
             collection,
             recordJson: JSON.stringify(record)
@@ -198,5 +198,9 @@ export const Api = {
 
     onDataChanged(callback: () => void) {
         return listen<void>('data-changed', () => callback());
+    },
+
+    async log_to_terminal(msg: string): Promise<void> {
+        return await invoke("log_to_terminal", { msg });
     }
 };
