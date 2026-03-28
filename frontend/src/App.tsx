@@ -45,7 +45,7 @@ export default function App() {
         
         <div className="flex-1 overflow-y-auto px-4 md:px-12 py-8">
           <div className="max-w-4xl mx-auto w-full h-full">
-            {['dashboard', 'notes', 'tasks', 'swims', 'grades'].includes(currentPage) && <Dashboard view={currentPage as any} />}
+            {['dashboard', 'notes', 'tasks', 'swims', 'grades', 'galas', 'qts'].includes(currentPage) && <Dashboard view={currentPage as any} />}
             {currentPage === 'flashcards' && <Flashcards />}
             {currentPage === 'editor' && <EntryEditor />}
             {currentPage === 'search' && <SearchPage />}

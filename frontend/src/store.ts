@@ -12,7 +12,7 @@ interface AppState {
   flashcards: SchoolFlashcard[];
   searchQuery: string;
   isSidebarOpen: boolean;
-  currentPage: 'dashboard' | 'notes' | 'tasks' | 'flashcards' | 'swims' | 'grades' | 'search' | 'editor';
+  currentPage: 'dashboard' | 'notes' | 'tasks' | 'flashcards' | 'swims' | 'grades' | 'galas' | 'qts' | 'search' | 'editor';
   currentEntryId: string | null;
   currentEntryType: string;
   

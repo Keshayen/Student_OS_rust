@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { useCreateBlockNote } from "@blocknote/react";
 import { getDefaultReactSlashMenuItems, SuggestionMenuController } from "@blocknote/react";
-import { generateHTML } from '@tiptap/html';
-import StarterKit from '@tiptap/starter-kit';
+import { BrainCircuit } from "lucide-react";
 import { Api } from "../../api";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
@@ -31,70 +30,56 @@ export default function NotionEditor({ documentId, initialContent, onChange }: N
   const [contentLoaded, setContentLoaded] = useState(!!parsedBlocks);
   const initializedRef = useRef(false);
 
-  // ONLY load complex conversions dynamically (Tiptap HTML, Flutter Quill Delta) 
+  // Start completely fresh if not recognized
   useEffect(() => {
     if (initializedRef.current) return;
     initializedRef.current = true;
 
-    async function loadLegacy() {
-      if (parsedBlocks || !initialContent) {
-        setContentLoaded(true);
-        return;
-      }
-      try {
-        let parsed;
-        try {
-          parsed = JSON.parse(initialContent);
-        } catch (e) {
-          // If not json, raw text/markdown
-          const blocks = await editor.tryParseHTMLToBlocks(`<p>${initialContent}</p>`);
-          editor.replaceBlocks(editor.document, blocks);
-          setContentLoaded(true);
-          return;
-        }
-
-        if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].insert !== undefined) {
-           // Flutter Quill Delta Format! 
-           const text = parsed.map(op => op.insert || "").join("");
-           const blocks = await editor.tryParseHTMLToBlocks(`<p>${text.replace(/\n/g, '<br>')}</p>`);
-           editor.replaceBlocks(editor.document, blocks);
-        } else if (parsed && parsed.type === "doc" || parsed.content) {
-           // Legacy Tiptap JSON Format. generate HTML using starter-kit and parse natively.
-           const html = generateHTML(parsed, [StarterKit]);
-           const blocks = await editor.tryParseHTMLToBlocks(html);
-           editor.replaceBlocks(editor.document, blocks);
-        } else {
-           // Unknown JSON - Initialize empty
-           editor.replaceBlocks(editor.document, [{ type: "paragraph" }]);
-        }
-      } catch (e) {
-        console.error("Failed to parse legacy initial content", e);
-      }
+    if (parsedBlocks || !initialContent) {
       setContentLoaded(true);
+      return;
     }
-    loadLegacy();
-  }, [documentId, editor, initialContent, parsedBlocks]);
+
+    // Default to an empty paragraph if entirely unknown content arrives
+    editor.replaceBlocks(editor.document, [{ type: "paragraph" }]);
+    setContentLoaded(true);
+  }, [editor, initialContent, parsedBlocks]);
 
   // Flashcard Custom Slash Command
   const insertFlashcardItem = (e: typeof editor) => ({
     title: "Create Flashcard",
     onItemClick: () => {
-      const q = window.prompt("Flashcard Question:");
-      if (!q) return;
-      const a = window.prompt("Flashcard Answer:");
-      if (!a) return;
+      e.insertBlocks(
+        [
+          {
+            type: "paragraph",
+            content: "📚 Flashcard linked to this note! Open the Flashcards tab to review.",
+          },
+        ],
+        e.getTextCursorPosition().block,
+        "after"
+      );
+
       Api.createRecord('flashcards', {
-        id: "", userId: "LRA8iDK1iBUKGCdVIOff7CjVhxT2", subject: "Editor Generated", question: q, answer: a,
-        stability: 0, difficulty: 0, due: new Date().toISOString(), interval: 0, lapses: 0, createdAt: new Date().toISOString()
+        id: "",
+        userId: "LRA8iDK1iBUKGCdVIOff7CjVhxT2",
+        subject: "General",
+        question: "New Flashcard Question (Click to Edit)",
+        answer: "New Flashcard Answer",
+        stability: 0,
+        difficulty: 0,
+        interval: 0,
+        lapses: 0,
+        due: new Date().toISOString(),
+        linkedNoteIds: documentId ? [documentId] : [],
+        createdAt: new Date().toISOString()
       }).then(() => {
           console.log("Flashcard sent to backend");
-          // Optionally insert a visual placeholder block natively inside BlockNote
-          e.insertBlocks([{ type: "paragraph", content: `⚡ Flashcard added: ${q}` }], e.getTextCursorPosition().block, "after");
       });
     },
     aliases: ["flashcard", "card", "fc"],
-    group: "Learning",
-    icon: <span className="text-purple-400 font-bold ml-1">⚡</span>,
+    group: "Other",
+    icon: <BrainCircuit size={18} />,
     subtext: "Create an FSRS Flashcard natively",
   });
 

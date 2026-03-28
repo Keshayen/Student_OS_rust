@@ -172,7 +172,7 @@ export default function EntryEditor() {
         </div>
         <div className="flex items-center gap-3">
           {currentEntryId && (
-             <button onClick={handleDelete} className="text-sm font-semibold text-red-400 hover:text-red-300 transition-colors">
+             <button onClick={() => setShowDeleteModal(true)} className="text-sm font-semibold text-red-400 hover:text-red-300 transition-colors">
                Delete
              </button>
           )}
