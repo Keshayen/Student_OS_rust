@@ -37,6 +37,7 @@ loro = "1.2.5"
 base64 = "0.22"
 hex = "0.4"
 openssl = { version = "0.10", features = ["vendored"] }
+fuzzy-matcher = "0.3.7"
 
 [profile.release]
 opt-level = 3

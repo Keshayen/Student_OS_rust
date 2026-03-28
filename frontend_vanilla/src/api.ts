@@ -114,14 +114,6 @@ export interface QualifyingTime {
     isAchieved: boolean;
 }
 
-export interface SearchResult {
-    id: string;
-    collection: string;
-    title: string;
-    subtitle: string;
-    score: number;
-}
-
 // --- API Service ---
 
 export const Api = {
@@ -133,18 +125,14 @@ export const Api = {
     async getQualifyingTimes(): Promise<QualifyingTime[]> { return await invoke("get_qualifying_times"); },
     async getFlashcards(): Promise<SchoolFlashcard[]> { return await invoke("get_flashcards"); },
 
-    async globalSearch(query: string): Promise<SearchResult[]> {
-        return await invoke("global_search", { query });
-    },
-
-    async createRecord(collection: string, record: any): Promise<any> {
+    async createRecord(collection: string, record: any): Promise<void> {
         return await invoke("create_record_command", {
             collection,
             recordJson: JSON.stringify(record)
         });
     },
 
-    async updateRecord(collection: string, record: any): Promise<any> {
+    async updateRecord(collection: string, record: any): Promise<void> {
         return await invoke("update_record_command", {
             collection,
             recordJson: JSON.stringify(record)
@@ -198,9 +186,5 @@ export const Api = {
 
     onDataChanged(callback: () => void) {
         return listen<void>('data-changed', () => callback());
-    },
-
-    async log_to_terminal(msg: string): Promise<void> {
-        return await invoke("log_to_terminal", { msg });
     }
 };

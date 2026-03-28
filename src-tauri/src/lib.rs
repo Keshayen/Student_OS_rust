@@ -1,9 +1,11 @@
 use crate::core::db::TrailbaseService;
 use crate::core::models::{Task, SchoolNote, SchoolFlashcard, SchoolGrade, SwimGala, SwimSession, QualifyingTime};
 use crate::core::fsrs_scheduler::{self, Rating};
-use tauri::{State, Manager};
+use tauri::{State, Manager, Emitter};
 use serde_json::Value;
 use tokio::sync::Mutex; 
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 
 mod core; 
 
@@ -55,18 +57,22 @@ async fn get_qualifying_times(state: State<'_, AppState>) -> Result<Vec<Qualifyi
 }
 
 #[tauri::command]
-async fn create_record_command(state: State<'_, AppState>, collection: String, record_json: String) -> Result<Value, String> {
+async fn create_record_command(state: State<'_, AppState>, app: tauri::AppHandle, collection: String, record_json: String) -> Result<Value, String> {
+    println!("[API] create_record_command: collection={}", collection);
     let trailbase = state.trailbase_service.lock().await;
     let record: Value = serde_json::from_str(&record_json).map_err(|e: serde_json::Error| e.to_string())?;
 
-    match collection.as_str() {
+    let res = match collection.as_str() {
         "tasks" => {
             let record: Task = serde_json::from_value(record).map_err(|e: serde_json::Error| e.to_string())?;
             let created_record = trailbase.create_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
             serde_json::to_value(created_record).map_err(|e: serde_json::Error| e.to_string())
         },
         "school_notes" => {
-            let record: SchoolNote = serde_json::from_value(record).map_err(|e: serde_json::Error| e.to_string())?;
+            let record: SchoolNote = serde_json::from_value(record.clone()).map_err(|e: serde_json::Error| {
+                eprintln!("[Deser Error] Failed to parse SchoolNote. Error: {}, Payload: {}", e, record);
+                e.to_string()
+            })?;
             let created_record = trailbase.create_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
             serde_json::to_value(created_record).map_err(|e: serde_json::Error| e.to_string())
         },
@@ -95,21 +101,24 @@ async fn create_record_command(state: State<'_, AppState>, collection: String, r
             let created_record = trailbase.create_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
             serde_json::to_value(created_record).map_err(|e: serde_json::Error| e.to_string())
         },
-        _ => Err(format!("Unknown collection: {}", collection)),
+        _ => return Err(format!("Unknown collection: {}", collection)),
+    };
+
+    if res.is_ok() {
+        let _ = app.emit("data-changed", ());
     }
+    res
 }
 
 #[tauri::command]
-async fn update_record_command(state: State<'_, AppState>, collection: String, record_json: String) -> Result<Value, String> {
+async fn update_record_command(state: State<'_, AppState>, app: tauri::AppHandle, collection: String, record_json: String) -> Result<Value, String> {
+    println!("[API] update_record_command: collection={}", collection);
     let trailbase = state.trailbase_service.lock().await;
     let record: Value = serde_json::from_str(&record_json).map_err(|e: serde_json::Error| e.to_string())?;
 
-    match collection.as_str() {
+    let res = match collection.as_str() {
         "tasks" => {
-            let record: Task = serde_json::from_value(record.clone()).map_err(|e: serde_json::Error| {
-                eprintln!("[Deser Error] Failed to parse Task. Error: {}, Payload: {}", e, record);
-                e.to_string()
-            })?;
+            let record: Task = serde_json::from_value(record).map_err(|e: serde_json::Error| e.to_string())?;
             let updated_record = trailbase.update_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
             serde_json::to_value(updated_record).map_err(|e: serde_json::Error| e.to_string())
         },
@@ -143,12 +152,17 @@ async fn update_record_command(state: State<'_, AppState>, collection: String, r
             let updated_record = trailbase.update_record(&collection, record).await.map_err(|e: anyhow::Error| e.to_string())?;
             serde_json::to_value(updated_record).map_err(|e: serde_json::Error| e.to_string())
         },
-        _ => Err(format!("Unknown collection: {}", collection)),
+        _ => return Err(format!("Unknown collection: {}", collection)),
+    };
+
+    if res.is_ok() {
+        let _ = app.emit("data-changed", ());
     }
+    res
 }
 
 #[tauri::command]
-async fn delete_record_command(state: State<'_, AppState>, collection: String, record_id: String) -> Result<(), String> {
+async fn delete_record_command(state: State<'_, AppState>, app: tauri::AppHandle, collection: String, record_id: String) -> Result<(), String> {
     let trailbase = state.trailbase_service.lock().await;
 
     match collection.as_str() {
@@ -159,20 +173,27 @@ async fn delete_record_command(state: State<'_, AppState>, collection: String, r
         "swim_sessions" => trailbase.delete_record::<SwimSession>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
         "swim_galas" => trailbase.delete_record::<SwimGala>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
         "qualifying_times" => trailbase.delete_record::<QualifyingTime>(&collection, &record_id).await.map_err(|e: anyhow::Error| e.to_string()),
-        _ => Err(format!("Unknown collection: {}", collection)),
-    }
+        _ => return Err(format!("Unknown collection: {}", collection)),
+    }?;
+
+    let _ = app.emit("data-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
-async fn nuke_database(state: State<'_, AppState>) -> Result<(), String> {
+async fn nuke_database(state: State<'_, AppState>, app: tauri::AppHandle) -> Result<(), String> {
     let mut trailbase = state.trailbase_service.lock().await;
-    trailbase.nuke_local_data().await.map_err(|e| e.to_string())
+    trailbase.nuke_local_data().await.map_err(|e| e.to_string())?;
+    let _ = app.emit("data-changed", ());
+    Ok(())
 }
 
 #[tauri::command]
 async fn refresh_data_command(app_handle: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let trailbase = state.trailbase_service.lock().await;
-    trailbase.refresh_data(&app_handle).await.map_err(|e| e.to_string())
+    trailbase.refresh_data(&app_handle).await.map_err(|e| e.to_string())?;
+    let _ = app_handle.emit("data-changed", ());
+    Ok(())
 }
 
 use std::sync::atomic::Ordering;
@@ -186,53 +207,58 @@ async fn get_connection_status(state: State<'_, AppState>) -> Result<bool, Strin
 #[tauri::command]
 async fn review_flashcard(
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
     card_id: String,
     rating: u8,
     desired_retention: Option<f32>,
 ) -> Result<Value, String> {
-    let trailbase = state.trailbase_service.lock().await;
-    let flashcards: Vec<SchoolFlashcard> = trailbase
-        .get_flashcards()
-        .await
-        .map_err(|e| e.to_string())?;
+    let res = (|| async {
+        let trailbase = state.trailbase_service.lock().await;
+        let flashcards: Vec<SchoolFlashcard> = trailbase
+            .get_flashcards()
+            .await
+            .map_err(|e| e.to_string())?;
 
-    let card = flashcards
-        .iter()
-        .find(|c| c.id == card_id)
-        .ok_or_else(|| format!("Flashcard not found: {}", card_id))?;
+        let card = flashcards
+            .iter()
+            .find(|c| c.id == card_id)
+            .ok_or_else(|| format!("Flashcard not found: {}", card_id))?;
 
-    let r = Rating::from_u8(rating).ok_or_else(|| format!("Invalid rating: {}", rating))?;
-    let retention = desired_retention.unwrap_or(0.9);
-    
-    #[cfg(feature = "fsrs-ml")]
-    let algorithm_source = "Crate (Machine-Learning)";
-    #[cfg(not(feature = "fsrs-ml"))]
-    let algorithm_source = "Native (Rust Math Fallback)";
+        let r = Rating::from_u8(rating).ok_or_else(|| format!("Invalid rating: {}", rating))?;
+        let retention = desired_retention.unwrap_or(0.9);
+        
+        #[cfg(feature = "fsrs-ml")]
+        let algorithm_source = "Crate (Machine-Learning)";
+        #[cfg(not(feature = "fsrs-ml"))]
+        let algorithm_source = "Native (Rust Math Fallback)";
 
-    println!("[FSRS] Using Algorithm: {}", algorithm_source);
-    println!("[FSRS] Incoming Review: Card ID: {}, Rating: {:?} (u8: {})", card_id, r, rating);
-    println!("[FSRS] Previous State: Stability: {:.2}, Difficulty: {:.2}, Interval: {:.2}d", 
-             card.stability, card.difficulty, card.interval);
+        println!("[FSRS] Using Algorithm: {}", algorithm_source);
+        println!("[FSRS] Incoming Review: Card ID: {}, Rating: {:?} (u8: {})", card_id, r, rating);
 
-    let output = fsrs_scheduler::review_card(card, r, retention);
+        let output = fsrs_scheduler::review_card(card, r, retention);
 
-    println!("[FSRS] Computed State: Stability: {:.2}, Difficulty: {:.2}, Interval: {:.2}d, Next Due: {}", 
-             output.stability, output.difficulty, output.interval, output.due);
+        // Build updated card
+        let mut updated = card.clone();
+        updated.stability = output.stability;
+        updated.difficulty = output.difficulty;
+        updated.interval = output.interval;
+        updated.due = output.due.clone();
+        updated.lapses = output.lapses;
+        updated.last_review = Some(output.last_review.clone());
 
-    // Build updated card
-    let mut updated = card.clone();
-    updated.stability = output.stability;
-    updated.difficulty = output.difficulty;
-    updated.interval = output.interval;
-    updated.due = output.due;
-    updated.lapses = output.lapses;
-    updated.last_review = Some(output.last_review);
+        let updated_record = trailbase
+            .update_record("flashcards", updated)
+            .await
+            .map_err(|e| e.to_string())?;
 
-    let updated_record = trailbase
-        .update_record("flashcards", updated)
-        .await
-        .map_err(|e| e.to_string())?;
-    serde_json::to_value(updated_record).map_err(|e| e.to_string())
+        serde_json::to_value(updated_record).map_err(|e| e.to_string())
+    })()
+    .await;
+
+    if res.is_ok() {
+        let _ = app.emit("data-changed", ());
+    }
+    res
 }
 
 #[tauri::command]
@@ -255,6 +281,69 @@ async fn get_next_review_states(
     let retention = desired_retention.unwrap_or(0.9);
     let states = fsrs_scheduler::get_next_states(card, retention);
     serde_json::to_value(states).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Serialize)]
+struct SearchResult {
+    id: String,
+    collection: String,
+    title: String,
+    subtitle: String,
+    score: i64,
+}
+
+#[tauri::command]
+async fn global_search(state: State<'_, AppState>, query: String) -> Result<Vec<SearchResult>, String> {
+    let trailbase = state.trailbase_service.lock().await;
+    let matcher = SkimMatcherV2::default();
+    let mut results = Vec::new();
+
+    if let Ok(notes) = trailbase.get_notes().await {
+        for note in notes {
+            let target = format!("{} {} {}", note.title, note.subject, note.content);
+            if let Some(score) = matcher.fuzzy_match(&target, &query) {
+                results.push(SearchResult { id: note.id.clone(), collection: "school_notes".to_string(), title: note.title.clone(), subtitle: note.subject.clone(), score });
+            }
+        }
+    }
+    
+    if let Ok(tasks) = trailbase.get_tasks().await {
+        for task in tasks {
+            let subject = task.subject.unwrap_or_default();
+            let target = format!("{} {}", task.title, subject);
+            if let Some(score) = matcher.fuzzy_match(&target, &query) {
+                results.push(SearchResult { id: task.id.clone(), collection: "tasks".to_string(), title: task.title.clone(), subtitle: subject, score });
+            }
+        }
+    }
+
+    if let Ok(swims) = trailbase.get_swim_sessions().await {
+        for s in swims {
+            let target = format!("{} {} {}m", s.stroke, s.notes, s.distance);
+            if let Some(score) = matcher.fuzzy_match(&target, &query) {
+                let title = format!("{}m {}", s.distance, s.stroke);
+                results.push(SearchResult { id: s.id.clone(), collection: "swim_sessions".to_string(), title, subtitle: s.notes.clone(), score });
+            }
+        }
+    }
+
+    if let Ok(grades) = trailbase.get_grades().await {
+        for g in grades {
+            let cycle = g.cycle.clone();
+            let target = format!("{} {} {}", g.title, g.subject, cycle);
+            if let Some(score) = matcher.fuzzy_match(&target, &query) {
+                results.push(SearchResult { id: g.id.clone(), collection: "school_grades".to_string(), title: g.title.clone(), subtitle: format!("{} • {}%", g.subject, (g.score as f32 / g.total as f32 * 100.0).round()), score });
+            }
+        }
+    }
+
+    results.sort_by(|a, b| b.score.cmp(&a.score));
+    Ok(results)
+}
+
+#[tauri::command]
+fn log_to_terminal(msg: String) {
+    println!("[Webkit] {}", msg);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -280,7 +369,9 @@ pub fn run() {
                 refresh_data_command,
                 get_connection_status,
                 review_flashcard,
-                get_next_review_states
+                get_next_review_states,
+                global_search,
+                log_to_terminal
             ])
             .build(tauri::generate_context!())
     }).expect("Failed to build tauri application");

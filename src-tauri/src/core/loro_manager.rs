@@ -102,6 +102,8 @@ impl LoroManager {
             .ok_or_else(|| anyhow!("ID missing from value record"))?
             .to_string();
         
+        println!("[Loro] Upserting to {}: id={}", collection_name, id);
+        
         if let serde_json::Value::Object(ref mut map) = json_val {
             let now = chrono::Utc::now().to_rfc3339();
             map.insert("updatedAt".to_string(), serde_json::Value::String(now));
@@ -115,6 +117,7 @@ impl LoroManager {
             for (key, val) in map {
                 if (key == "content" || key == "notes") && val.is_string() {
                     let s = val.as_str().unwrap_or("");
+                    println!("[Loro]   Updating Text: {}", key);
                     let text_container = record_map.get_or_create_container(&key, LoroText::default())
                         .map_err(|e| anyhow!("Loro error creating text container for {}.{}: {:?}", id, key, e))?;
                     

@@ -228,27 +228,20 @@ impl TrailbaseService {
         // 3. FALLBACK TO INDIVIDUAL TABLES
         println!("[Migration] Starting pull from individual legacy tables...");
 
-        // Helper to fetch and log
-        async fn fetch_and_log<T>(client: &Client, coll: &str, user_id: &str) -> Vec<T> 
+        async fn fetch_without_log<T>(client: &Client, coll: &str, user_id: &str) -> Vec<T> 
         where T: serde::de::DeserializeOwned + 'static {
             match TrailbaseService::fetch_remote::<T>(client, coll, user_id).await {
-                Ok(items) => {
-                    println!("[Migration] Fetched {} items from '{}'", items.len(), coll);
-                    items
-                },
-                Err(e) => {
-                    println!("[Migration] Failed to fetch from '{}': {:?}", coll, e);
-                    Vec::new()
-                }
+                Ok(items) => items,
+                Err(_) => Vec::new()
             }
         }
 
-        let tasks = fetch_and_log::<Task>(client, "tasks", user_id).await;
-        let notes = fetch_and_log::<SchoolNote>(client, "school_notes", user_id).await;
-        let grades = fetch_and_log::<SchoolGrade>(client, "school_grades", user_id).await;
-        let swims = fetch_and_log::<SwimSession>(client, "swim_sessions", user_id).await;
-        let galas = fetch_and_log::<SwimGala>(client, "swim_galas", user_id).await;
-        let qts = fetch_and_log::<QualifyingTime>(client, "qualifying_times", user_id).await;
+        let tasks = fetch_without_log::<Task>(client, "tasks", user_id).await;
+        let notes = fetch_without_log::<SchoolNote>(client, "school_notes", user_id).await;
+        let grades = fetch_without_log::<SchoolGrade>(client, "school_grades", user_id).await;
+        let swims = fetch_without_log::<SwimSession>(client, "swim_sessions", user_id).await;
+        let galas = fetch_without_log::<SwimGala>(client, "swim_galas", user_id).await;
+        let qts = fetch_without_log::<QualifyingTime>(client, "qualifying_times", user_id).await;
         
         // Custom fetch for legacy flashcards
         #[derive(Deserialize)]
@@ -269,7 +262,7 @@ impl TrailbaseService {
             pub updated_at: Option<String>,
         }
         
-        let old_flashcards = fetch_and_log::<OldSchoolFlashcard>(client, "flashcards", user_id).await;
+        let old_flashcards = fetch_without_log::<OldSchoolFlashcard>(client, "flashcards", user_id).await;
         let flashcards: Vec<SchoolFlashcard> = old_flashcards.into_iter().map(|old| {
             SchoolFlashcard {
                 id: old.id,
@@ -292,7 +285,6 @@ impl TrailbaseService {
         }).collect();
 
         let mut loro = self.loro.lock().await;
-        println!("[Migration] Pre-Migration Loro State: {}", loro.dump_state());
         
         let mut total_migrated = 0;
         let mut batch_count = 0;
@@ -334,12 +326,10 @@ impl TrailbaseService {
                     batch_count = 0;
                 }
             }
-            println!("[Migration] Finished collection: {}", coll_name);
         }
         loro.save()?;
 
         if total_migrated > 0 {
-            println!("[Migration] Post-Migration Loro State: {:.2000}", loro.dump_state());
             // We no longer update last_pushed_vv here. 
             // We want the background sync loop to see these new items and push them to sync_updates.
             let _ = handle.emit("data-changed", ());
@@ -385,8 +375,10 @@ impl TrailbaseService {
                         is_offline_clone.store(false, Ordering::Relaxed);
                         let _ = handle.emit("connection-status", false); 
                         
+                        println!("=== [SYNC] Uploading to trailing cloud network... ===");
                         let _ = handle.emit("sync-status", "syncing");
                         let _ = Self::sync_loro(&client_clone, &loro_clone, &last_pushed_vv, &last_pulled_id, &handle, &sync_state_path_clone).await;
+                        println!("=== [SYNC] Completely Synchronized with trailing cloud network. Idle. ===");
                         let _ = handle.emit("sync-status", "idle");
                     }
                 } else {
