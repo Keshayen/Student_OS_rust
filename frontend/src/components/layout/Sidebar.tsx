@@ -107,16 +107,6 @@ export default function Sidebar() {
           </span>
         </div>
       </aside>
-
-      {/* Open Sidebar Toggle for when closed */}
-      {!isSidebarOpen && (
-        <button 
-          onClick={toggleSidebar}
-          className="absolute top-4 left-4 z-50 p-1.5 text-gray-400 hover:bg-white/10 rounded-md transition-colors"
-        >
-          <PanelLeft size={20} />
-        </button>
-      )}
     </>
   );
 }

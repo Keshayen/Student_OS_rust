@@ -6,14 +6,14 @@ export default function Dashboard({ view = 'dashboard' }: { view?: 'dashboard' |
 
   return (
     <div className="pb-32 animate-in fade-in duration-500">
-      <div className="mb-10 px-2 lg:px-8 pt-4">
+      <div className="mb-10 px-4 lg:px-8 pt-4">
         <h1 className="text-3xl lg:text-5xl font-bold text-white mb-2 capitalize tracking-tight">
           {view === 'dashboard' ? 'Good morning, Keshayen' : view.replace('_', ' ')}
         </h1>
         <p className="text-[#9b9b9b]">{view === 'dashboard' ? "Here's your overview." : `Manage your ${view.replace('_', ' ')}.`}</p>
       </div>
 
-      <div className={`px-2 lg:px-8 grid gap-6 ${view === 'dashboard' ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3 items-start' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 auto-rows-max'}`}>
+      <div className={`px-4 lg:px-8 grid gap-6 ${view === 'dashboard' ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3 items-start' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 auto-rows-max'}`}>
         {/* OVERVIEW DASHBOARD */}
         {view === 'dashboard' && (
           <div className="flex flex-col bg-[#1e1e1e] rounded-xl p-4 shadow-xl shadow-black/10 border border-white/5 h-fit">

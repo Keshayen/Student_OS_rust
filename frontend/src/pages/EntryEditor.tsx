@@ -7,7 +7,7 @@ import { ChevronLeft } from 'lucide-react';
 export default function EntryEditor() {
   const { currentEntryId, currentEntryType, setCurrentPage, fetchData } = useAppStore();
   const state = useAppStore();
-  const [trackingId, setTrackingId] = useState<string | null | undefined>(undefined);
+  const [trackingToken, setTrackingToken] = useState("");
   
   // Generic fields
   const [selectedType, setSelectedType] = useState(currentEntryType);
@@ -68,7 +68,9 @@ export default function EntryEditor() {
   ];
 
   useEffect(() => {
-    if (currentEntryId !== trackingId) {
+    const currentToken = `${currentEntryType}-${currentEntryId || 'new'}`;
+    if (currentToken !== trackingToken) {
+      setTrackingToken(currentToken);
       setSelectedType(currentEntryType);
       if (currentEntryId) {
         if (currentEntryType === 'school_notes') {
@@ -120,9 +122,9 @@ export default function EntryEditor() {
       } else {
         setTitle(''); setContent(''); setScore(0); setTotal(100); setDistance(0); setDuration(0);
       }
-      setTrackingId(currentEntryId);
+      setTrackingToken(currentToken);
     }
-  }, [currentEntryId, currentEntryType, state.notes, state.tasks, state.flashcards, state.swims, state.grades, state.galas, state.qts, trackingId]);
+  }, [currentEntryId, currentEntryType, state.notes, state.tasks, state.flashcards, state.swims, state.grades, state.galas, state.qts, trackingToken]);
 
   const handleSave = async (isAutoSave = false) => {
     const effectiveTitle = title || "Untitled";
@@ -240,19 +242,19 @@ export default function EntryEditor() {
 
   // Real-time Autobinder natively syncing fields to Rust Core asynchronously
   useEffect(() => {
-     if (currentEntryId && !trackingId) return; // Still loading existing item 
+     if (currentEntryId && !trackingToken) return; // Still loading existing item 
      // Removed !title check to allow auto-save with Untitled
      
      const timer = setTimeout(() => {
         handleSave(true);
      }, 1500);
-     Api.log_to_terminal(`[EntryEditor] Auto-save timer started - Title: ${title || 'Untitled'} - trackingId: ${trackingId || 'NEW'}`);
+     Api.log_to_terminal(`[EntryEditor] Auto-save timer started - Title: ${title || 'Untitled'} - trackingToken: ${trackingToken || 'NEW'}`);
      return () => clearTimeout(timer);
   }, [
      title, content, subject, date, isCompleted, dueDate, frequency, taskType, schoolTaskType, 
      distance, duration, stroke, poolLength, caloriesBurned, workoutEffect, 
      score, total, cycle, category, schoolYear, galaCourse, galaLocation, qtTargetTime, qtIsAchieved, qtCourse, fcQuestion, fcAnswer, fcTags, fcLinkedNotes,
-     currentEntryId, trackingId
+     currentEntryId, trackingToken
   ]);
 
   const handleDelete = async () => {
@@ -313,7 +315,7 @@ export default function EntryEditor() {
             setTitle(e.target.value);
             Api.log_to_terminal(`[EntryEditor] Title changed: ${e.target.value}`);
           }}
-          className="w-full bg-transparent text-4xl md:text-5xl font-bold placeholder-gray-700 text-white focus:outline-none mb-6"
+          className="w-full bg-transparent text-3xl md:text-5xl font-bold placeholder-gray-700 text-white focus:outline-none mb-6"
         />
 
         {/* Notion Properties Block */}
@@ -468,7 +470,7 @@ export default function EntryEditor() {
         </div>
 
         {/* Editor for content-heavy types like Notes */}
-        {selectedType === 'school_notes' && trackingId === currentEntryId && (
+        {selectedType === 'school_notes' && (
           <NotionEditor key={currentEntryId || "new"} documentId={currentEntryId} initialContent={content} onChange={setContent} />
         )}
       </div>
@@ -493,11 +495,11 @@ export default function EntryEditor() {
 
 function PropertyRow({ label, children }: { label: string, children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-4 group">
-       <div className="w-32 text-sm text-[#525252] flex items-center gap-2">
+    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 group py-1">
+       <div className="w-full sm:w-32 text-[11px] sm:text-sm text-[#525252] flex items-center gap-2 uppercase tracking-tight sm:tracking-normal shrink-0">
           {label}
        </div>
-       <div className="flex-1 flex items-center">
+       <div className="flex-1 flex items-center min-w-0 w-full">
          {children}
        </div>
     </div>

@@ -193,7 +193,7 @@ export default function NotionEditor({ documentId, initialContent, onChange }: N
   if (!contentLoaded) return <div className="text-[#525252] font-semibold text-sm p-4 animate-pulse">Loading editor...</div>;
 
   return (
-    <div className="notion-editor-wrapper -mx-10 pl-4 pr-1">
+    <div className="notion-editor-wrapper md:-mx-10 mx-0 pl-4 pr-1 min-h-[500px]">
       <BlockNoteView 
         editor={editor} 
         onChange={() => onChange(JSON.stringify(editor.document))} 

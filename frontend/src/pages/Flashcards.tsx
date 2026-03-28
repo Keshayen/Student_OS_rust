@@ -1,7 +1,36 @@
 import { useState } from 'react';
 import { useAppStore } from '../store';
 import { Api } from '../api';
-import { GraduationCap, Zap, BrainCircuit, RefreshCw, X, Check, XCircle, ArrowRight } from 'lucide-react';
+import { GraduationCap, Zap, BrainCircuit, RefreshCw, X, Check, XCircle, ArrowRight, Activity, Sparkles } from 'lucide-react';
+import { useEffect } from 'react';
+
+function NextInterval({ cardId, rating }: { cardId: string, rating: 1 | 2 | 3 | 4 }) {
+  const [interval, setIntervalVal] = useState<string | null>(null);
+
+  useEffect(() => {
+    Api.getNextReviewStates(cardId).then(states => {
+      const days = [states.again, states.hard, states.good, states.easy][rating - 1];
+      setIntervalVal(formatDays(days));
+    });
+  }, [cardId, rating]);
+
+  if (!interval) return <div className="h-3 w-8 bg-white/5 animate-pulse rounded mt-1" />;
+  return <span className="text-[10px] font-bold opacity-50 tracking-wider mt-0.5">{interval}</span>;
+}
+
+function formatDays(days: number): string {
+  if (days < 1) {
+    const mins = Math.round(days * 24 * 60);
+    if (mins < 1) return `1m`;
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.round(days * 24);
+    return `${hours}h`;
+  }
+  const d = Math.round(days);
+  if (d < 30) return `${d}d`;
+  if (d < 365) return `${Math.round(d / 30.44)}mo`;
+  return `${Math.round(d / 365)}y`;
+}
 
 export default function Flashcards() {
   const flashcards = useAppStore(state => state.flashcards);
@@ -19,9 +48,9 @@ export default function Flashcards() {
 
   return (
     <div className="pb-32 animate-in fade-in duration-500 max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-4xl font-bold text-white flex items-center gap-3">
-          <GraduationCap size={36} className="text-purple-400" />
+      <div className="flex items-center justify-between mb-8 px-4 md:px-0">
+        <h1 className="text-3xl md:text-4xl font-bold text-white flex items-center gap-3">
+          <GraduationCap size={32} className="text-purple-400" />
           Flashcards
         </h1>
       </div>
@@ -91,29 +120,30 @@ export default function Flashcards() {
                         {dueCards[currentCardIndex].answer}
                      </p>
                      
-                     <div className="flex gap-4 w-full max-w-md">
-                        <button 
-                          onClick={async () => {
-                             await Api.reviewFlashcard(dueCards[currentCardIndex].id, 1);
-                             setShowAnswer(false);
-                             setCurrentCardIndex(prev => prev + 1);
-                             if (currentCardIndex + 1 >= dueCards.length) { setIsStudying(false); fetchData(); }
-                          }}
-                          className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                        >
-                          <XCircle size={20} /> Again
-                        </button>
-                        <button 
-                          onClick={async () => {
-                             await Api.reviewFlashcard(dueCards[currentCardIndex].id, 3);
-                             setShowAnswer(false);
-                             setCurrentCardIndex(prev => prev + 1);
-                             if (currentCardIndex + 1 >= dueCards.length) { setIsStudying(false); fetchData(); }
-                          }}
-                          className="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-500 font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                        >
-                          <Check size={20} /> Good
-                        </button>
+                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full max-w-2xl">
+                        {[
+                          { rating: 1, label: 'Again', color: 'bg-red-500/10 hover:bg-red-500/20 text-red-500', icon: <XCircle size={18} /> },
+                          { rating: 2, label: 'Hard', color: 'bg-orange-500/10 hover:bg-orange-500/20 text-orange-500', icon: <Activity size={18} /> },
+                          { rating: 3, label: 'Good', color: 'bg-green-500/10 hover:bg-green-500/20 text-green-500', icon: <Check size={18} /> },
+                          { rating: 4, label: 'Easy', color: 'bg-blue-500/10 hover:bg-blue-500/20 text-blue-500', icon: <Sparkles size={18} /> },
+                        ].map((btn) => (
+                          <button 
+                            key={btn.rating}
+                            onClick={async () => {
+                               await Api.reviewFlashcard(dueCards[currentCardIndex].id, btn.rating as any);
+                               setShowAnswer(false);
+                               setCurrentCardIndex(prev => prev + 1);
+                               if (currentCardIndex + 1 >= dueCards.length) { setIsStudying(false); fetchData(); }
+                            }}
+                            className={`flex flex-col items-center justify-center p-4 rounded-xl transition-all cursor-pointer border border-transparent hover:border-white/10 ${btn.color}`}
+                          >
+                            <div className="flex items-center gap-2 mb-1">
+                               {btn.icon}
+                               <span className="font-bold text-sm tracking-tight">{btn.label}</span>
+                            </div>
+                            <NextInterval cardId={dueCards[currentCardIndex].id} rating={btn.rating as any} />
+                          </button>
+                        ))}
                      </div>
                   </div>
                ) : (

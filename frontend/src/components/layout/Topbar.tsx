@@ -11,7 +11,7 @@ export default function Topbar() {
         {!isSidebarOpen && (
           <button 
             onClick={toggleSidebar}
-            className="p-1 hover:bg-white/10 rounded-md transition-colors mr-2 md:hidden"
+            className="p-1 hover:bg-white/10 rounded-md transition-colors mr-2 cursor-pointer"
           >
             <PanelLeft size={18} />
           </button>
