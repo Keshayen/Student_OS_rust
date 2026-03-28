@@ -4,6 +4,8 @@ use crate::core::fsrs_scheduler::{self, Rating};
 use tauri::{State, Manager};
 use serde_json::Value;
 use tokio::sync::Mutex; 
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 
 mod core; 
 
@@ -257,6 +259,69 @@ async fn get_next_review_states(
     serde_json::to_value(states).map_err(|e| e.to_string())
 }
 
+#[derive(serde::Serialize)]
+struct SearchResult {
+    id: String,
+    collection: String,
+    title: String,
+    subtitle: String,
+    score: i64,
+}
+
+#[tauri::command]
+async fn global_search(state: State<'_, AppState>, query: String) -> Result<Vec<SearchResult>, String> {
+    let trailbase = state.trailbase_service.lock().await;
+    let matcher = SkimMatcherV2::default();
+    let mut results = Vec::new();
+
+    if let Ok(notes) = trailbase.get_notes().await {
+        for note in notes {
+            let target = format!("{} {} {}", note.title, note.subject, note.content);
+            if let Some(score) = matcher.fuzzy_match(&target, &query) {
+                results.push(SearchResult { id: note.id.clone(), collection: "school_notes".to_string(), title: note.title.clone(), subtitle: note.subject.clone(), score });
+            }
+        }
+    }
+    
+    if let Ok(tasks) = trailbase.get_tasks().await {
+        for task in tasks {
+            let subject = task.subject.unwrap_or_default();
+            let target = format!("{} {}", task.title, subject);
+            if let Some(score) = matcher.fuzzy_match(&target, &query) {
+                results.push(SearchResult { id: task.id.clone(), collection: "tasks".to_string(), title: task.title.clone(), subtitle: subject, score });
+            }
+        }
+    }
+
+    if let Ok(swims) = trailbase.get_swim_sessions().await {
+        for s in swims {
+            let target = format!("{} {} {}m", s.stroke, s.notes, s.distance);
+            if let Some(score) = matcher.fuzzy_match(&target, &query) {
+                let title = format!("{}m {}", s.distance, s.stroke);
+                results.push(SearchResult { id: s.id.clone(), collection: "swim_sessions".to_string(), title, subtitle: s.notes.clone(), score });
+            }
+        }
+    }
+
+    if let Ok(grades) = trailbase.get_grades().await {
+        for g in grades {
+            let cycle = g.cycle.clone();
+            let target = format!("{} {} {}", g.title, g.subject, cycle);
+            if let Some(score) = matcher.fuzzy_match(&target, &query) {
+                results.push(SearchResult { id: g.id.clone(), collection: "school_grades".to_string(), title: g.title.clone(), subtitle: format!("{} • {}%", g.subject, (g.score as f32 / g.total as f32 * 100.0).round()), score });
+            }
+        }
+    }
+
+    results.sort_by(|a, b| b.score.cmp(&a.score));
+    Ok(results)
+}
+
+#[tauri::command]
+fn log_to_terminal(msg: String) {
+    println!("[Webkit] {}", msg);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -280,7 +345,9 @@ pub fn run() {
                 refresh_data_command,
                 get_connection_status,
                 review_flashcard,
-                get_next_review_states
+                get_next_review_states,
+                global_search,
+                log_to_terminal
             ])
             .build(tauri::generate_context!())
     }).expect("Failed to build tauri application");

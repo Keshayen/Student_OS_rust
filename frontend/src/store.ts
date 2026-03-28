@@ -12,10 +12,13 @@ interface AppState {
   flashcards: SchoolFlashcard[];
   searchQuery: string;
   isSidebarOpen: boolean;
-  currentPage: 'dashboard' | 'notes' | 'tasks' | 'flashcards' | 'swims';
+  currentPage: 'dashboard' | 'notes' | 'tasks' | 'flashcards' | 'swims' | 'grades' | 'search' | 'editor';
+  currentEntryId: string | null;
+  currentEntryType: string;
   
   // Actions
   setCurrentPage: (page: AppState['currentPage']) => void;
+  openEditor: (type?: string, id?: string | null) => void;
   setSearchQuery: (query: string) => void;
   toggleSidebar: () => void;
   fetchData: () => Promise<void>;
@@ -32,14 +35,21 @@ export const useAppStore = create<AppState>((set) => ({
   searchQuery: '',
   isSidebarOpen: true,
   currentPage: 'dashboard',
+  currentEntryId: null,
+  currentEntryType: 'school_notes',
 
   setCurrentPage: (page) => set({ currentPage: page }),
+  openEditor: (type = 'school_notes', id: string | null = null) => set({ 
+    currentPage: 'editor', 
+    currentEntryType: type, 
+    currentEntryId: id 
+  }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   
   fetchData: async () => {
     try {
-      const [tasks, notes, grades, swims, galas, qts, flashcards] = await Promise.all([
+      const results = await Promise.allSettled([
         Api.getTasks(),
         Api.getNotes(),
         Api.getGrades(),
@@ -48,7 +58,19 @@ export const useAppStore = create<AppState>((set) => ({
         Api.getQualifyingTimes(),
         Api.getFlashcards()
       ]);
-      set({ tasks, notes, grades, swims, galas, qts, flashcards });
+      
+      const getValue = <T>(res: PromiseSettledResult<T>, fallback: T): T => 
+        res.status === 'fulfilled' ? res.value : fallback;
+
+      set({ 
+        tasks: getValue(results[0], []), 
+        notes: getValue(results[1], []), 
+        grades: getValue(results[2], []), 
+        swims: getValue(results[3], []), 
+        galas: getValue(results[4], []), 
+        qts: getValue(results[5], []), 
+        flashcards: getValue(results[6], []) 
+      });
     } catch (e) {
       console.error("Fetch failed", e);
     }

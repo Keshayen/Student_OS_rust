@@ -114,6 +114,14 @@ export interface QualifyingTime {
     isAchieved: boolean;
 }
 
+export interface SearchResult {
+    id: string;
+    collection: string;
+    title: string;
+    subtitle: string;
+    score: number;
+}
+
 // --- API Service ---
 
 export const Api = {
@@ -124,6 +132,10 @@ export const Api = {
     async getSwimGalas(): Promise<SwimGala[]> { return await invoke("get_swim_galas"); },
     async getQualifyingTimes(): Promise<QualifyingTime[]> { return await invoke("get_qualifying_times"); },
     async getFlashcards(): Promise<SchoolFlashcard[]> { return await invoke("get_flashcards"); },
+
+    async globalSearch(query: string): Promise<SearchResult[]> {
+        return await invoke("global_search", { query });
+    },
 
     async createRecord(collection: string, record: any): Promise<void> {
         return await invoke("create_record_command", {

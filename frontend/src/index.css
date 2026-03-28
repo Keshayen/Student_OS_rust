@@ -39,3 +39,7 @@
 .notion-bg-hover:hover {
   background-color: rgba(255, 255, 255, 0.05);
 }
+
+.bn-editor, .bn-container {
+  background-color: transparent !important;
+}

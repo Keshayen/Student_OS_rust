@@ -11,11 +11,21 @@ export default function Sidebar() {
   const setCurrentPage = useAppStore(state => state.setCurrentPage);
   const currentPage = useAppStore(state => state.currentPage);
   const [isMobile, setIsMobile] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('Idle');
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     handleResize();
     window.addEventListener('resize', handleResize);
+    
+    // Tauri real-time event listeners for Data tracking
+    import('../../api').then(({ Api }) => {
+      Api.onSyncStatusChange((status) => setSyncStatus(status));
+      Api.onConnectionChange((offline) => setIsOffline(offline));
+      Api.getConnectionStatus().then(offline => setIsOffline(offline));
+    });
+
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
@@ -24,8 +34,10 @@ export default function Sidebar() {
     { icon: <Search size={18} />, label: "Search", id: "search" as const },
     { icon: <BookOpen size={18} />, label: "School Notes", id: "notes" as const },
     { icon: <CheckSquare size={18} />, label: "Tasks & Habits", id: "tasks" as const },
-    { icon: <Activity size={18} />, label: "Grades", id: "notes" as const },
+    { icon: <Activity size={18} />, label: "Grades", id: "grades" as const },
     { icon: <Waves size={18} />, label: "Swim Sessions", id: "swims" as const },
+    { icon: <Waves size={18} className="text-blue-400" />, label: "Swim Galas", id: "galas" as const },
+    { icon: <Activity size={18} className="text-yellow-400" />, label: "Qualifying Times", id: "qts" as const },
     { icon: <GraduationCap size={18} />, label: "Flashcards", id: "flashcards" as const },
   ];
 
@@ -86,8 +98,13 @@ export default function Sidebar() {
           </div>
         </div>
 
-        <div className="p-4 border-t border-white/5 text-xs text-[#9b9b9b] flex items-center justify-between min-w-[16rem]">
-          <span>Syncing...</span>
+        <div className="p-4 border-t border-white/5 text-xs flex items-center justify-between min-w-[16rem]">
+          <span className={`${isOffline ? 'text-red-400' : 'text-[#9b9b9b]'}`}>
+            {isOffline ? 'Offline Mode' : 'Network Active'}
+          </span>
+          <span className={`capitalize ${syncStatus === 'syncing' ? 'text-blue-400 animate-pulse' : 'text-[#525252]'}`}>
+            {syncStatus === 'syncing' ? 'Syncing...' : 'Idle'}
+          </span>
         </div>
       </aside>
 

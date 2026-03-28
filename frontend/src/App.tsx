@@ -5,6 +5,8 @@ import Sidebar from './components/layout/Sidebar';
 import Topbar from './components/layout/Topbar';
 import Dashboard from './pages/Dashboard';
 import Flashcards from './pages/Flashcards';
+import EntryEditor from './pages/EntryEditor';
+import SearchPage from './pages/SearchPage';
 
 export default function App() {
   const fetchData = useAppStore(state => state.fetchData);
@@ -42,12 +44,11 @@ export default function App() {
         <Topbar />
         
         <div className="flex-1 overflow-y-auto px-4 md:px-12 py-8">
-          <div className="max-w-4xl mx-auto w-full">
-            {currentPage === 'dashboard' && <Dashboard />}
+          <div className="max-w-4xl mx-auto w-full h-full">
+            {['dashboard', 'notes', 'tasks', 'swims', 'grades'].includes(currentPage) && <Dashboard view={currentPage as any} />}
             {currentPage === 'flashcards' && <Flashcards />}
-            {['notes', 'tasks', 'swims'].includes(currentPage) && (
-              <div className="text-[#9b9b9b] text-center mt-20">We are building this custom filtered view... use the main dashboard for now!</div>
-            )}
+            {currentPage === 'editor' && <EntryEditor />}
+            {currentPage === 'search' && <SearchPage />}
           </div>
         </div>
       </main>
