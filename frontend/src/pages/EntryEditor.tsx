@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../store';
 import { Api } from '../api';
+import { formatSwimTime, parseSwimTime } from '../utils/formatters';
 import NotionEditor from '../components/editor/NotionEditor';
 import { ChevronLeft } from 'lucide-react';
 
@@ -46,6 +47,7 @@ export default function EntryEditor() {
 
   // Qualifying Times
   const [qtTargetTime, setQtTargetTime] = useState(0);
+  const [qtDisplayTime, setQtDisplayTime] = useState("");
   const [qtIsAchieved, setQtIsAchieved] = useState(false);
   const [qtCourse, setQtCourse] = useState('Short Course (25m)');
   
@@ -111,6 +113,7 @@ export default function EntryEditor() {
           const item = state.qts.find(q => q.id === currentEntryId);
           if (item) {
             setTitle(item.eventName); setQtCourse(item.course); setQtTargetTime(item.targetTime); setQtIsAchieved(item.isAchieved);
+            setQtDisplayTime(formatSwimTime(item.targetTime));
           }
         } else if (currentEntryType === 'flashcards') {
           const item = state.flashcards.find(f => f.id === currentEntryId);
@@ -120,7 +123,12 @@ export default function EntryEditor() {
           }
         }
       } else {
-        setTitle(''); setContent(''); setScore(0); setTotal(100); setDistance(0); setDuration(0);
+        // Only clear if the user is truly switching from an existing item to a "fresh" new one.
+        // If they are just toggling types for an unsaved draft, preserve the content.
+        if (currentToken.endsWith('-new') && trackingToken && !trackingToken.endsWith('-new')) {
+           setTitle(''); setContent(''); setScore(0); setTotal(100); setDistance(0); setDuration(0);
+           setQtTargetTime(0); setQtDisplayTime("");
+        }
       }
       setTrackingToken(currentToken);
     }
@@ -178,7 +186,7 @@ export default function EntryEditor() {
          } else if (selectedType === 'qualifying_times') {
             const base = state.qts.find(n => n.id === currentEntryId);
             await Api.updateRecord('qualifying_times', { 
-              userId, ...base, id: currentEntryId, eventName: title, course: qtCourse, targetTime: qtTargetTime, isAchieved: qtIsAchieved, 
+              userId, ...base, id: currentEntryId, name: title, eventName: title, course: qtCourse, targetTime: qtTargetTime, isAchieved: qtIsAchieved, 
               updatedAt: new Date().toISOString() 
             });
          } else if (selectedType === 'flashcards') {
@@ -214,7 +222,7 @@ export default function EntryEditor() {
         } else if (selectedType === 'swim_galas') {
           await Api.createRecord('swim_galas', { id: baseId, userId, name: title, date: new Date(date).toISOString(), course: galaCourse, location: galaLocation });
         } else if (selectedType === 'qualifying_times') {
-          await Api.createRecord('qualifying_times', { id: baseId, userId, eventName: title, targetTime: qtTargetTime, course: qtCourse, isAchieved: qtIsAchieved });
+          await Api.createRecord('qualifying_times', { id: baseId, userId, name: title, eventName: title, targetTime: qtTargetTime, course: qtCourse, isAchieved: qtIsAchieved });
         } else if (selectedType === 'flashcards') {
           await Api.createRecord('flashcards', { 
             id: baseId, userId, subject: subject || title, question: fcQuestion, answer: fcAnswer,
@@ -224,7 +232,7 @@ export default function EntryEditor() {
         }
         
         // CRITICAL: Update the store to track the new record ID, shifting the editor to "Update" mode
-        useAppStore.setState({ currentEntryId: baseId });
+        useAppStore.setState({ currentEntryId: baseId, currentEntryType: selectedType });
       }
       
       // AutoSave triggers sync implicitly without bouncing navigation
@@ -242,19 +250,19 @@ export default function EntryEditor() {
 
   // Real-time Autobinder natively syncing fields to Rust Core asynchronously
   useEffect(() => {
+     if (!currentEntryId && !title) return; // DON'T auto-save BRAND NEW items with no title (prevents type locking)
      if (currentEntryId && !trackingToken) return; // Still loading existing item 
-     // Removed !title check to allow auto-save with Untitled
      
      const timer = setTimeout(() => {
         handleSave(true);
      }, 800);
-     Api.log_to_terminal(`[EntryEditor] Auto-save timer started - Title: ${title || 'Untitled'} - trackingToken: ${trackingToken || 'NEW'}`);
+     Api.log_to_terminal(`[EntryEditor] Auto-save timer started - Type: ${selectedType} - Title: ${title || 'Untitled'} - trackingToken: ${trackingToken || 'NEW'}`);
      return () => clearTimeout(timer);
   }, [
      title, content, subject, date, isCompleted, dueDate, frequency, taskType, schoolTaskType, 
      distance, duration, stroke, poolLength, caloriesBurned, workoutEffect, 
      score, total, cycle, category, schoolYear, galaCourse, galaLocation, qtTargetTime, qtIsAchieved, qtCourse, fcQuestion, fcAnswer, fcTags, fcLinkedNotes,
-     currentEntryId, trackingToken
+     currentEntryId, trackingToken, selectedType
   ]);
 
   const handleDelete = async () => {
@@ -326,7 +334,15 @@ export default function EntryEditor() {
                   {selectedType.replace('_', ' ')}
                </div>
              ) : (
-               <select value={selectedType} onChange={e => setSelectedType(e.target.value as any)} className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-0.5 rounded cursor-pointer focus:outline-none outline-none">
+               <select 
+                 value={selectedType} 
+                 onChange={e => {
+                   const newType = e.target.value as any;
+                   setSelectedType(newType);
+                   useAppStore.setState({ currentEntryType: newType });
+                 }} 
+                 className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-0.5 rounded cursor-pointer focus:outline-none outline-none"
+               >
                  {entryTypes.map(t => <option key={t.value} value={t.value} className="bg-[#191919]">{t.label}</option>)}
                </select>
              )}
@@ -419,8 +435,23 @@ export default function EntryEditor() {
           )}
           {selectedType === 'qualifying_times' && (
              <>
-               <PropertyRow label="Target (Seconds)">
-                 <input type="number" value={qtTargetTime} onChange={e => setQtTargetTime(Number(e.target.value))} className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-0.5 rounded focus:outline-none w-24" />
+               <PropertyRow label="Target (MM:SS.ms)">
+                 <div className="flex flex-col gap-1 w-full max-w-[200px]">
+                   <input 
+                      type="text" 
+                      value={qtDisplayTime} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        setQtDisplayTime(val);
+                        const ms = parseSwimTime(val);
+                        setQtTargetTime(ms);
+                      }}
+                      onBlur={() => setQtDisplayTime(formatSwimTime(qtTargetTime))}
+                      placeholder="MM:SS.ms" 
+                      className="bg-transparent text-sm text-white hover:bg-white/5 px-2 py-0.5 rounded focus:outline-none w-full border-b border-white/10" 
+                   />
+                   <span className="text-[10px] text-[#525252]">Example: 1:23.45 or 50.00</span>
+                 </div>
                </PropertyRow>
                <PropertyRow label="Status">
                  <button onClick={() => setQtIsAchieved(!qtIsAchieved)} className={`px-2 py-1 rounded text-xs font-semibold select-none ${qtIsAchieved ? 'bg-green-500/20 text-green-400' : 'bg-white/10 text-[#9b9b9b] hover:text-white'}`}>

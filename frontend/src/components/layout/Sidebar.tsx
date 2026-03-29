@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAppStore } from '../../store';
 import { 
-  ChevronLeft, PanelLeft, Home, Search, BookOpen, 
+  ChevronLeft,  Home, Search, BookOpen, 
   CheckSquare, Activity, Waves, GraduationCap 
 } from 'lucide-react';
 

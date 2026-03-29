@@ -2,6 +2,8 @@ import { Plus, ChevronRight, FileText, CheckCircle2, Waves, Activity } from 'luc
 import { useAppStore } from '../store';
 import CalendarView from '../components/dashboard/CalendarView';
 
+import { formatSwimTime } from '../utils/formatters';
+
 export default function Dashboard({ view = 'dashboard' }: { view?: 'dashboard' | 'notes' | 'tasks' | 'swims' | 'grades' | 'galas' | 'qts' | string }) {
   const { tasks, notes, swims, grades, galas, qts, openEditor, fetchData } = useAppStore();
 
@@ -180,7 +182,7 @@ export default function Dashboard({ view = 'dashboard' }: { view?: 'dashboard' |
                  <h3 className="text-base font-bold text-white group-hover:text-yellow-400 transition-colors leading-tight pr-4">{qt.eventName}</h3>
                  {qt.isAchieved && <CheckCircle2 size={18} className="text-yellow-400 shrink-0" />}
               </div>
-              <p className="text-xs text-[#9b9b9b] font-medium">{qt.course} • Target: <span className="text-[#d4d4d4]">{qt.targetTime}s</span></p>
+              <p className="text-xs text-[#9b9b9b] font-medium">{qt.course} • Target: <span className="text-[#d4d4d4]">{formatSwimTime(qt.targetTime)}</span></p>
             </div>
         ))}
         {view === 'qts' && qts.length === 0 && <p className="text-[#525252] col-span-full">No qualifying times tracked.</p>}
